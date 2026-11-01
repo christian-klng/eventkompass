@@ -355,3 +355,21 @@ test('Löschen archiviert nur; Admins stellen wieder her', async () => {
   assert.equal(back.body.history[0].kind, 'Wiederhergestellt');
   assert.deepEqual(back.body.deps, ['k-location'], 'Abhängigkeiten bleiben erhalten');
 });
+
+test('Ressorts und Events mit Kennzahlen (auch archivierten) lassen sich nicht löschen', async () => {
+  const a = await adminClient();
+  const ev = (await a('POST', '/api/events', { name: 'Löschtest' })).body;
+  const r = (await a('POST', '/api/ressorts', { eventId: ev.id, name: 'Weg damit' })).body;
+  const k = (await a('POST', '/api/kpis', { ressortId: r.id, title: 'Rest', type: 'bool' })).body;
+  await a('DELETE', `/api/kpis/${k.id}`); // archiviert
+  assert.equal((await a('DELETE', `/api/ressorts/${r.id}`)).status, 400);
+  assert.equal((await a('DELETE', `/api/events/${ev.id}`)).status, 400);
+  const lead = (await a('GET', '/api/state')).body.ressorts.find((x) => x.eventId === ev.id && x.isLead);
+  await a('POST', `/api/admin/ressorts/${r.id}/merge`, { intoId: lead.id });
+  assert.equal((await a('GET', '/api/state')).body.kpis.find((x) => x.id === k.id).ressortId, lead.id, 'Zusammenführen nimmt archivierte mit');
+  const leer = (await a('POST', '/api/ressorts', { eventId: ev.id, name: 'Leer' })).body;
+  assert.equal((await a('DELETE', `/api/ressorts/${leer.id}`)).status, 200);
+  const ev2 = (await a('POST', '/api/events', { name: 'Leeres Event' })).body;
+  assert.equal((await a('DELETE', `/api/events/${ev2.id}`)).status, 200);
+  assert.ok(!(await a('GET', '/api/state')).body.ressorts.some((x) => x.eventId === ev2.id), 'Führungsressort geht mit');
+});

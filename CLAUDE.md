@@ -66,6 +66,7 @@ npm test                        # API-Tests, laufen ohne Docker
 - `canEditRessort(user, ressortId)`: Admin oder `user.ressortId === ressortId`. Gilt für Anlegen, Wert, Erreichung, Stammdaten.
 - Nur Admin: KPI archivieren/wiederherstellen, KPI anderem Ressort zuordnen, Events/Ressorts verwalten, `/api/admin/*`, `/api/reset` (+ `ALLOW_RESET`).
 - Das Führungsressort hat **keine** Sonderrechte – es pflegt nur seine eigenen (Event-)Kennzahlen.
+- Ressorts und Events lassen sich nur löschen, wenn sie keine Kennzahlen (auch archivierte) haben – Ressorts vorher zusammenführen.
 - Schutz: letzter aktiver Admin kann nicht herabgestuft/gesperrt/gelöscht werden; Sperren/Einmal-Passwort beendet Sessions.
 - Neue schreibende Endpunkte: Rechte prüfen **und** einen Test in `test/api.test.js` ergänzen.
 

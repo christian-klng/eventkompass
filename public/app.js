@@ -64,6 +64,7 @@ const ressortsOf = (eventId) => state.data.ressorts.filter((r) => r.eventId === 
 const evRessorts = () => ressortsOf(state.eventId);
 const leadRessort = () => evRessorts().find((r) => r.isLead);
 // Archivierte Kennzahlen tauchen nur im Archiv des Ressorts auf (für Admins)
+const kpiCount = (fn) => state.data.kpis.filter(fn).length; // inkl. archivierter
 const activeKpis = () => state.data.kpis.filter((k) => !k.archivedAt);
 const evKpis = () => activeKpis().filter((k) => k.eventId === state.eventId);
 const owner = (k) => ressort(k.ressortId)?.name || 'Ressort';
@@ -600,7 +601,9 @@ function modalRessortForm(r) {
       !isNew ? el('div', { class: 'muted small' }, 'Wer das Ressort pflegt, legst du in der Nutzerliste fest (Verwaltung → Nutzer).') : null,
       r?.isLead ? el('div', { class: 'muted small' }, 'Das Führungsressort pflegt die Event-Kennzahlen. Es lässt sich umbenennen, aber nicht löschen.') : null],
     (close) => [
-      !isNew && !r.isLead && el('button', { class: 'btn danger left', onClick: () => confirm(`„${r.name}“ und alle zugehörigen Kennzahlen löschen?`) && act(() => api('DELETE', `/api/ressorts/${r.id}`), 'Ressort gelöscht').then((ok) => { if (!ok) return; close(); if (state.view === 'ressort') go('overview'); }) }, 'Löschen'),
+      !isNew && !r.isLead && (kpiCount((k) => k.ressortId === r.id)
+        ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Löschen erst ohne Kennzahlen möglich – vorher zusammenführen.')
+        : el('button', { class: 'btn danger left', onClick: () => confirm(`Ressort „${r.name}“ löschen? Zugeordnete Nutzer verlieren ihre Zuordnung.`) && act(() => api('DELETE', `/api/ressorts/${r.id}`), 'Ressort gelöscht').then((ok) => { if (!ok) return; close(); if (state.view === 'ressort') go('overview'); }) }, 'Löschen')),
       cancelBtn(close),
       el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/ressorts', { eventId: state.eventId, ...payload() }) : await api('PUT', `/api/ressorts/${r.id}`, payload()); if (isNew && state.view !== 'admin') { state.view = 'ressort'; state.ressortId = res.id; } }, isNew ? 'Ressort angelegt' : 'Ressort gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')]);
 }
@@ -625,7 +628,9 @@ function modalEventForm(ev) {
     [field('Name', name), el('div', { class: 'two' }, field('Beginn', start), field('Ende', end)),
       isNew ? el('div', { class: 'muted small' }, 'Das Führungsressort für die Event-Kennzahlen wird automatisch angelegt.') : null],
     (close) => [
-      !isNew && el('button', { class: 'btn danger left', onClick: () => confirm(`„${ev.name}“ mit allen Ressorts und Kennzahlen löschen? Zugeordnete Nutzer verlieren ihre Zuordnung.`) && act(() => api('DELETE', `/api/events/${ev.id}`), 'Event gelöscht').then(closeOn(close)) }, 'Löschen'),
+      !isNew && (kpiCount((k) => k.eventId === ev.id)
+        ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Events mit Kennzahlen lassen sich nicht löschen.')
+        : el('button', { class: 'btn danger left', onClick: () => confirm(`„${ev.name}“ mit seinen Ressorts löschen? Zugeordnete Nutzer verlieren ihre Zuordnung.`) && act(() => api('DELETE', `/api/events/${ev.id}`), 'Event gelöscht').then(closeOn(close)) }, 'Löschen')),
       cancelBtn(close),
       el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/events', payload()) : await api('PUT', `/api/events/${ev.id}`, payload()); if (isNew) state.eventId = res.id; }, isNew ? 'Event angelegt' : 'Event gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')]);
 }
