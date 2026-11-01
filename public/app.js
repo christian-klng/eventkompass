@@ -14,7 +14,7 @@ const el = (tag, attrs = {}, ...children) => {
   return n;
 };
 
-const state = { me: null, data: { events: [], ressorts: [], kpis: [] }, users: [], eventId: null, view: 'overview', ressortId: null, adminTab: 'users', userFilter: 'all' };
+const state = { me: null, data: { events: [], ressorts: [], kpis: [] }, users: [], invites: [], eventId: null, view: 'overview', ressortId: null, adminTab: 'users', userFilter: 'all' };
 const TYPE_LABEL = { number: 'Anzahl', bool: 'Ja / Nein' };
 const PALETTE = ['#2563EB', '#7C3AED', '#DB2777', '#0F766E', '#B45309', '#0891B2', '#65A30D', '#9333EA', '#DC2626', '#4B5563'];
 const MIN_PASSWORD = 10;
@@ -33,9 +33,10 @@ async function api(method, url, body) {
   return json;
 }
 async function reload() {
-  const [data, users] = await Promise.all([api('GET', '/api/state'), isAdmin() ? api('GET', '/api/admin/users') : null]);
+  const [data, users, invites] = await Promise.all([api('GET', '/api/state'), isAdmin() ? api('GET', '/api/admin/users') : null, isAdmin() ? api('GET', '/api/admin/invites') : null]);
   state.data = data;
   state.users = users || [];
+  state.invites = invites || [];
   if (!state.data.events.find((e) => e.id === state.eventId)) state.eventId = state.data.events.find((e) => e.id === state.me.eventId)?.id || state.data.events[0]?.id || null;
   render();
 }
@@ -144,17 +145,26 @@ function authLogin(card, notice) {
     el('div', { class: 'auth-switch muted small' }, 'Noch kein Konto? ', el('button', { class: 'link-btn', onClick: () => showAuth('register') }, 'Registrieren')));
 }
 
-async function authRegister(card) {
-  append(card, el('h1', {}, 'Registrieren'), el('div', { class: 'muted small' }, 'Wähle dein Event und dein Ressort. Die Zuordnung kann danach nur ein Admin ändern.'));
-  let opts;
+// inviteId kommt aus dem Einladungslink (/#einladung=<id>): E-Mail ist vorgegeben, ggf. auch das Ressort.
+async function authRegister(card, inviteId) {
+  append(card, el('h1', {}, 'Registrieren'));
+  let opts, invite = null;
   try { opts = await api('GET', '/api/public/registration-options'); } catch (e) { card.append(el('div', { class: 'error-box' }, e.message)); return; }
+  if (inviteId) {
+    try { invite = await api('GET', `/api/public/invites/${encodeURIComponent(inviteId)}`); } catch (e) { card.append(el('div', { class: 'error-box' }, e.message)); }
+    history.replaceState(null, '', location.pathname);
+  }
+  const fixed = invite?.ressort;
+  append(card, invite
+    ? el('div', { class: 'info-box small' }, 'Du bist eingeladen – dein Konto ist nach der Registrierung sofort aktiv.', fixed ? ` Ressort: „${fixed.name}“ (${fixed.eventName}).` : '')
+    : el('div', { class: 'muted small' }, 'Wähle dein Event und dein Ressort. Die Zuordnung kann danach nur ein Admin ändern.'));
   const name = inp('r-name', { autocomplete: 'name', placeholder: 'Vor- und Nachname' });
-  const email = inp('r-email', { type: 'email', autocomplete: 'username' });
+  const email = inp('r-email', { type: 'email', autocomplete: 'username', value: invite?.email || '', readonly: !!invite });
   const pw = inp('r-pw', { type: 'password', autocomplete: 'new-password' });
   const evSel = el('select', { id: 'r-event' }, el('option', { value: '' }, 'Bitte wählen …'), ...opts.events.map((e) => el('option', { value: e.id }, e.name + (e.startDate ? ' · ' + de(e.startDate) : ''))));
   const rSel = el('select', { id: 'r-ressort', disabled: true });
   const newName = inp('r-new', { placeholder: 'Name des Ressorts', maxlength: 60 });
-  const newField = field('Neues Ressort', newName, 'Ein Admin prüft den Namen und legt das Ressort an bzw. ordnet dich zu.');
+  const newField = field('Neues Ressort', newName, invite ? 'Wird direkt angelegt; ein Admin prüft den Namen später.' : 'Ein Admin prüft den Namen und legt das Ressort an bzw. ordnet dich zu.');
   const syncRessorts = () => {
     const rs = opts.ressorts.filter((r) => r.eventId === evSel.value).sort((a, b) => b.isLead - a.isLead);
     rSel.replaceChildren(el('option', { value: '' }, 'Bitte wählen …'), ...rs.map((r) => el('option', { value: r.id }, r.name + (r.isLead ? ' (Event-Kennzahlen)' : ''))), el('option', { value: '__new' }, 'Mein Ressort fehlt …'));
@@ -170,12 +180,13 @@ async function authRegister(card) {
   const noEvents = !opts.events.length;
   append(card,
     noEvents ? el('div', { class: 'info-box small' }, 'Es ist noch kein Event angelegt.') : null,
-    authForm([field('Name', name), field('E-Mail', email), field('Passwort', pw, `Mindestens ${MIN_PASSWORD} Zeichen.`), !noEvents && field('Event', evSel), !noEvents && field('Ressort', rSel), newField], 'Konto anlegen', async () => {
-      if (!noEvents && !evSel.value) throw new Error('Bitte ein Event auswählen.');
-      if (!noEvents && !rSel.value) throw new Error('Bitte ein Ressort auswählen.');
+    authForm([field('Name', name), field('E-Mail', email), field('Passwort', pw, `Mindestens ${MIN_PASSWORD} Zeichen.`), !noEvents && !fixed && field('Event', evSel), !noEvents && !fixed && field('Ressort', rSel), !fixed && newField], 'Konto anlegen', async () => {
+      const choose = !noEvents && !fixed;
+      if (choose && !evSel.value) throw new Error('Bitte ein Event auswählen.');
+      if (choose && !rSel.value) throw new Error('Bitte ein Ressort auswählen.');
       if (pw.value.length < MIN_PASSWORD) throw new Error(`Das Passwort muss mindestens ${MIN_PASSWORD} Zeichen haben.`);
-      const isNew = rSel.value === '__new';
-      const res = await api('POST', '/api/auth/register', { name: name.value, email: email.value, password: pw.value, eventId: evSel.value, ressortId: isNew ? null : rSel.value, newRessortName: isNew ? newName.value : '' });
+      const isNew = !fixed && rSel.value === '__new';
+      const res = await api('POST', '/api/auth/register', { name: name.value, email: email.value, password: pw.value, eventId: fixed ? fixed.eventId : evSel.value, ressortId: fixed ? fixed.id : isNew ? null : rSel.value, newRessortName: isNew ? newName.value : '' });
       if (res.status === 'active') await startApp(res.user);
       else showAuth('pending');
     }),
@@ -438,14 +449,43 @@ function adminUsers(main) {
           : u.requestedRessortName ? el('span', { class: 'chip open' }, 'Wunsch: ' + u.requestedRessortName) : el('span', { class: 'muted' }, '–')),
         el('td', {}, pill(STATUS[u.status]), u.mustChangePassword ? el('div', { class: 'muted small' }, 'Einmal-Passwort') : null),
         el('td', { class: 'small' }, de(u.createdAt)),
-        el('td', { class: 'small' }, u.approvedBy === 'auto' ? 'automatisch' : u.approvedBy === 'admin' ? 'Admin' : '–', u.approvedAt ? el('div', { class: 'muted' }, de(u.approvedAt)) : null),
+        el('td', { class: 'small' }, ({ auto: 'automatisch', admin: 'Admin', invite: 'Einladung' })[u.approvedBy] || '–', u.approvedAt ? el('div', { class: 'muted' }, de(u.approvedAt)) : null),
         el('td', { class: 'small' }, u.lastLoginAt ? deTime(u.lastLoginAt) : '–'),
         el('td', { class: 'actions' }, el('button', { class: 'btn small-btn' + (u.status === 'pending' ? '' : ' ghost'), onClick: () => modalUser(u) }, u.status === 'pending' ? 'Prüfen' : 'Bearbeiten')));
     }) : [el('tr', {}, el('td', { colspan: 9, class: 'empty' }, 'Keine Nutzer in dieser Ansicht.'))])));
+  main.append(inviteSection());
   main.append(el('section', { class: 'card' },
     el('div', { class: 'section-head' }, el('h2', {}, `Nutzer (${state.users.length})`),
       el('div', { class: 'filter-row' }, ...filters.map(([id, label, fn]) => el('button', { class: 'filter' + (state.userFilter === id ? ' active' : ''), onClick: () => { state.userFilter = id; render(); } }, `${label} (${state.users.filter(fn).length})`)))),
     el('div', { class: 'table-wrap' }, table)));
+}
+
+// Einladungen ohne Mailversand: Admin trägt die E-Mail ein und gibt den Link selbst weiter.
+function inviteSection() {
+  const email = inp('inv-email', { type: 'email', placeholder: 'name@beispiel.de', style: 'flex:1 1 220px' });
+  const rSel = el('select', { id: 'inv-ressort', style: 'flex:1 1 220px' }, el('option', { value: '' }, 'Ressort wählt die Person selbst'),
+    ...state.data.events.flatMap((ev) => ressortsOf(ev.id).map((r) => el('option', { value: r.id }, `${ev.name} · ${r.name}`))));
+  const open = state.invites.filter((i) => !i.usedAt).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const ressortLabel = (i) => { const r = ressort(i.ressortId); return r ? `${eventById(r.eventId)?.name || ''} · ${r.name}` : 'wählt selbst'; };
+  const invite = () => act(() => api('POST', '/api/admin/invites', { email: email.value, ressortId: rSel.value || null }), 'Einladung angelegt – jetzt den Link weitergeben');
+  return el('section', { class: 'card' },
+    el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, `Einladungen (${open.length})`),
+      el('div', { class: 'muted small' }, 'Wer sich mit einer eingeladenen E-Mail-Adresse registriert, ist ohne Freigabe aktiv. Den Link gibst du selbst weiter (es werden keine Mails verschickt).'))),
+    el('div', { class: 'invite-form' }, email, rSel, el('button', { class: 'btn', onClick: invite }, 'Einladen')),
+    open.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
+      el('thead', {}, el('tr', {}, ...['E-Mail', 'Ressort', 'Eingeladen', ''].map((h) => el('th', {}, h)))),
+      el('tbody', {}, ...open.map((i) => el('tr', {},
+        el('td', { class: 'strong' }, i.email),
+        el('td', {}, ressortLabel(i)),
+        el('td', { class: 'small' }, de(i.createdAt), el('div', { class: 'muted' }, 'von ' + i.createdBy)),
+        el('td', { class: 'actions' },
+          el('button', { class: 'btn ghost small-btn', onClick: () => copyInviteLink(i) }, 'Link kopieren'),
+          el('button', { class: 'btn ghost small-btn', onClick: () => confirm(`Einladung für ${i.email} zurückziehen?`) && act(() => api('DELETE', `/api/admin/invites/${i.id}`), 'Einladung zurückgezogen') }, 'Zurückziehen'))))))) : null);
+}
+// Zwischenablage gibt es nur über HTTPS/localhost – sonst den Link zum Kopieren anzeigen.
+async function copyInviteLink(i) {
+  const link = `${location.origin}/#einladung=${i.id}`;
+  try { await navigator.clipboard.writeText(link); toast('Link kopiert'); } catch { window.prompt(`Einladungslink für ${i.email} – bitte kopieren:`, link); }
 }
 
 function adminEvents(main) {
@@ -698,4 +738,5 @@ $('#btn-new-ressort').addEventListener('click', () => curEvent() ? modalRessortF
 document.querySelectorAll('.nav[data-view]').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#modal-root').replaceChildren(); closeMenus(); } });
 document.addEventListener('click', (e) => !e.target.closest('.menu') && closeMenus());
-api('GET', '/api/auth/me').then(({ user }) => startApp(user)).catch(() => showAuth('login'));
+const inviteId = (location.hash.match(/^#einladung=([\w-]+)$/) || [])[1];
+api('GET', '/api/auth/me').then(({ user }) => startApp(user)).catch(() => (inviteId ? showAuth('register', inviteId) : showAuth('login')));

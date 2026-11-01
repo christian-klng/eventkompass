@@ -44,7 +44,7 @@ npm test                        # API-Tests, laufen ohne Docker
 ## Daten (`data/data.json`, `version: 3`)
 
 - Nicht von Hand ändern, während der Container läuft (Zustand liegt im Speicher und wird komplett überschrieben).
-- `{ version, events, ressorts, kpis, users, sessions, settings }` – `GET /api/state` gibt **nur** events/ressorts/kpis heraus,
+- `{ version, events, ressorts, kpis, users, sessions, invites, settings }` – `GET /api/state` gibt **nur** events/ressorts/kpis heraus,
   nie `users`, `sessions` oder Passwort-Hashes. Nutzer nach außen immer über `publicUser()`.
 - **Ressort:** `id, eventId, name, color, isLead, unreviewed, createdAt` (keine „Leitung“ – wer pflegt, ergibt sich aus der Nutzer-Zuordnung). Je Event genau ein `isLead` (nicht löschbar,
   wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
@@ -59,6 +59,9 @@ npm test                        # API-Tests, laufen ohne Docker
 - **User:** `id, email, name, passwordHash, role ('admin'|'member'), eventId, ressortId, requestedRessortName,
   status ('pending'|'active'|'disabled'), mustChangePassword, createdAt, approvedAt, approvedBy ('admin'|'auto'), lastLoginAt`
 - **Session:** `tokenHash` (SHA-256 des Cookie-Tokens), `userId`, `expiresAt` (30 Tage). Cookie `ek_session`, `Secure` nur bei HTTPS.
+- **Invite:** `id, email, ressortId|null, createdAt, createdBy, usedAt, userId`. Registrierung mit offener eingeladener E-Mail →
+  sofort aktiv (`approvedBy: 'invite'`), festes Ressort hat Vorrang. Kein Mailversand; Link `/#einladung=<id>` füllt das Formular vor.
+  Achtung: Die E-Mail wird nicht verifiziert – wer die eingeladene Adresse kennt, kann sich damit registrieren.
 - **Settings:** `autoApproveUntil` – solange in der Zukunft, sind neue Registrierungen sofort aktiv.
 
 ## Rechte (Server ist maßgeblich, UI blendet nur aus)

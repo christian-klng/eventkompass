@@ -41,6 +41,7 @@ Ohne `PORT` startet der Server auf 8080 – der Port ist auf diesem Mac schon be
 ## Was geht
 
 - **Registrierung** mit Event (Auswahl) und Ressort (Auswahl oder Freitext „Mein Ressort fehlt …“)
+- **Einladungen** (Verwaltung → Nutzer): E-Mail eintragen, optional festes Ressort; wer sich damit registriert, ist ohne Freigabe aktiv. Es werden keine Mails verschickt – den Link (`/#einladung=<id>`) gibt der Admin selbst weiter
 - **Freigabe** neuer Konten durch Admins; alternativ Schalter „Automatisch freischalten bis …“ (1 h / 24 h / 7 Tage / eigenes Datum), läuft von selbst ab
 - **Rechte:** Alle sehen alle Kennzahlen und Historien. Bearbeiten nur im eigenen Ressort; Event-/Ressort-Zuordnung ändert nur ein Admin
 - **Führungsressort** je Event – pflegt die Event-Kennzahlen, hat sonst dieselben Rechte wie andere Ressorts
@@ -69,6 +70,8 @@ Alle Endpunkte außer den öffentlichen brauchen eine Session (Cookie). Schreibe
 | GET/PUT/DELETE | `/api/admin/users[/:id]` | Nutzer verwalten | Admin |
 | POST | `/api/admin/users/:id/password` | Einmal-Passwort setzen | Admin |
 | GET/PUT | `/api/admin/settings` | `{autoApproveUntil}` | Admin |
+| GET/POST/DELETE | `/api/admin/invites[/:id]` | Einladungen `{email, ressortId?}` | Admin |
+| GET | `/api/public/invites/:id` | E-Mail und festes Ressort einer offenen Einladung (für den Link) | öffentlich |
 | POST | `/api/reset[?empty=1]` | Demo-Daten neu laden / Inhalte leeren (Nutzer bleiben) | Admin + `ALLOW_RESET` |
 
 ## Bekannte Grenzen (v0.2)

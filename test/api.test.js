@@ -373,3 +373,41 @@ test('Ressorts und Events mit Kennzahlen (auch archivierten) lassen sich nicht l
   assert.equal((await a('DELETE', `/api/events/${ev2.id}`)).status, 200);
   assert.ok(!(await a('GET', '/api/state')).body.ressorts.some((x) => x.eventId === ev2.id), 'Führungsressort geht mit');
 });
+
+test('Einladungen: eingeladene E-Mail ist nach der Registrierung sofort aktiv', async () => {
+  const a = await adminClient();
+  assert.equal((await a('POST', '/api/admin/invites', { email: 'kein-mail' })).status, 400);
+  assert.equal((await a('POST', '/api/admin/invites', { email: ADMIN.email })).status, 400, 'Konto existiert schon');
+  const frei = (await a('POST', '/api/admin/invites', { email: 'Gast@Example.test' })).body;
+  assert.equal(frei.email, 'gast@example.test');
+  assert.equal((await a('POST', '/api/admin/invites', { email: 'gast@example.test' })).status, 400, 'doppelt');
+  const fest = (await a('POST', '/api/admin/invites', { email: 'fest@example.test', ressortId: 'r-programm' })).body;
+  const m = await member(a, 'r-marketing');
+  assert.equal((await m('GET', '/api/admin/invites')).status, 403);
+
+  // Öffentlicher Link zeigt E-Mail und festes Ressort
+  const pub = await client()('GET', `/api/public/invites/${fest.id}`);
+  assert.equal(pub.body.email, 'fest@example.test');
+  assert.equal(pub.body.ressort.name, 'Programm');
+
+  // Ohne festes Ressort: eigene Wahl, Freitext-Ressort entsteht sofort
+  const g = client();
+  const r1 = await g('POST', '/api/auth/register', { name: 'Gast', email: 'gast@example.test', password: 'passwort-123', eventId: 'ev-summit-2027', newRessortName: 'Catering-Team' });
+  assert.equal(r1.body.status, 'active');
+  assert.equal(r1.body.user.approvedBy, 'invite');
+  assert.equal(r1.body.user.role, 'member');
+  assert.equal((await g('GET', '/api/state')).status, 200);
+
+  // Mit festem Ressort: Auswahl bei der Registrierung wird überschrieben
+  const r2 = await client()('POST', '/api/auth/register', { name: 'Fest', email: 'fest@example.test', password: 'passwort-123', eventId: 'ev-summit-2027', ressortId: 'r-marketing' });
+  assert.equal(r2.body.user.ressortId, 'r-programm');
+  assert.equal((await client()('GET', `/api/public/invites/${fest.id}`)).status, 404, 'Link nach Nutzung ungültig');
+  const invites = (await a('GET', '/api/admin/invites')).body;
+  assert.ok(invites.find((i) => i.id === fest.id).usedAt);
+
+  // Zurückziehen
+  const weg = (await a('POST', '/api/admin/invites', { email: 'weg@example.test' })).body;
+  assert.equal((await a('DELETE', `/api/admin/invites/${weg.id}`)).status, 200);
+  const r3 = await client()('POST', '/api/auth/register', { name: 'Weg', email: 'weg@example.test', password: 'passwort-123', eventId: 'ev-summit-2027', ressortId: 'r-marketing' });
+  assert.equal(r3.body.status, 'pending');
+});
