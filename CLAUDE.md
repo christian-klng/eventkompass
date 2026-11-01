@@ -41,7 +41,7 @@ npm test                        # API-Tests, laufen ohne Docker
   Beim Start loggt die App, ob und welche Admins existieren.
 - Container läuft als `node` (nicht root); Dockerfile macht `/app` lesbar, weil lokale Dateien teils Rechte 600 haben.
 
-## Daten (`data/data.json`, `version: 2`)
+## Daten (`data/data.json`, `version: 3`)
 
 - Nicht von Hand ändern, während der Container läuft (Zustand liegt im Speicher und wird komplett überschrieben).
 - `{ version, events, ressorts, kpis, users, sessions, settings }` – `GET /api/state` gibt **nur** events/ressorts/kpis heraus,
@@ -49,8 +49,9 @@ npm test                        # API-Tests, laufen ohne Docker
 - **Ressort:** `id, eventId, name, color, isLead, unreviewed, createdAt` (keine „Leitung“ – wer pflegt, ergibt sich aus der Nutzer-Zuordnung). Je Event genau ein `isLead` (nicht löschbar,
   wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
 - **KPI:** `id, eventId, ressortId` (nie null), `title, description, type, target, current, unit, deadline, achieved,
-  achievedFlag, achievedAt, deps[], history[], createdAt, updatedAt`
-  - Typen: `number` (erreicht bei `current >= target`), `bool`, `date` (manuell), `combo` (Zahl erreicht **und** `achievedFlag`)
+  achievedAt, deps[], history[], createdAt, updatedAt`
+  - Nur zwei Typen: `number` (Anzahl, erreicht automatisch bei `current >= target`) und `bool` (Ja/Nein, von Hand, auch für Meilensteine).
+    Frühere Typen `date`/`combo` migriert `migrate()` (v3) zu `bool`/`number`.
   - `deps` nur auf KPIs mit gleicher `ressortId` (`cleanDeps()`); Ressortwechsel löst Abhängigkeiten in beide Richtungen
   - History: `id, at, who, userId, kind, from, to, note`, neueste zuerst; `who`/`userId` kommen aus der Session
 - **User:** `id, email, name, passwordHash, role ('admin'|'member'), eventId, ressortId, requestedRessortName,

@@ -244,3 +244,41 @@ test('Frische Installation ohne ADMIN_PASSWORD: Registrierung mit ADMIN_EMAIL wi
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Migration v3: Meilenstein → Ja/Nein, Anzahl + Datum → Anzahl', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-test-'));
+  const K = (id, type, target, current, extra = {}) => ({ id, eventId: 'e1', ressortId: 'r1', title: id, type, target, current, unit: '', deadline: null, achieved: false, achievedFlag: false, achievedAt: null, deps: [], history: [], ...extra });
+  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({
+    version: 2,
+    events: [{ id: 'e1', name: 'Alt' }],
+    ressorts: [{ id: 'r1', eventId: 'e1', name: 'Team', lead: 'Jemand', color: '#000' }],
+    kpis: [
+      K('meilenstein', 'date', 1, 1, { achieved: true, achievedAt: '2026-10-01' }),
+      K('combo-voll', 'combo', 4, 4, { achievedFlag: false, history: [{ at: '2026-10-20T10:00:00.000Z' }] }),
+      K('combo-offen', 'combo', 4, 2, { achievedFlag: true }),
+    ],
+  }));
+  const { store } = await createApp({ dataDir: dir, log: () => {} });
+  const k = (id) => store.state.kpis.find((x) => x.id === id);
+  try {
+    assert.equal(store.state.version, 3);
+    assert.equal(k('meilenstein').type, 'bool');
+    assert.equal(k('meilenstein').achievedAt, '2026-10-01');
+    assert.equal(k('combo-voll').type, 'number');
+    assert.equal(k('combo-voll').achieved, true);
+    assert.equal(k('combo-voll').achievedAt, '2026-10-20');
+    assert.equal(k('combo-offen').achieved, false);
+    assert.ok(store.state.kpis.every((x) => !('achievedFlag' in x)));
+    assert.ok(store.state.ressorts.every((r) => !('lead' in r)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Nur noch die Typen Anzahl und Ja/Nein', async () => {
+  const a = await adminClient();
+  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'x', type: 'combo' })).status, 400);
+  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'x', type: 'date' })).status, 400);
+  const st = await a('GET', '/api/state');
+  assert.ok(st.body.kpis.every((k) => ['number', 'bool'].includes(k.type)));
+});

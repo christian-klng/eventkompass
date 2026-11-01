@@ -45,7 +45,7 @@ Ohne `PORT` startet der Server auf 8080 – der Port ist auf diesem Mac schon be
 - **Rechte:** Alle sehen alle Kennzahlen und Historien. Bearbeiten nur im eigenen Ressort; Event-/Ressort-Zuordnung ändert nur ein Admin
 - **Führungsressort** je Event – pflegt die Event-Kennzahlen, hat sonst dieselben Rechte wie andere Ressorts
 - **Verwaltung** (Admin): Nutzer (freigeben, sperren, Rolle, Zuordnung, Einmal-Passwort), Events, Ressorts (bestätigen, zusammenführen)
-- Kennzahlen-Typen: **Anzahl**, **Ja/Nein**, **Meilenstein (Datum)**, **Anzahl + Datum**; Frist; Abhängigkeiten **nur innerhalb desselben Ressorts**
+- Kennzahlen-Typen: **Anzahl** (Ziel- und Ist-Wert, automatisch erreicht) und **Ja/Nein** (von Hand abgehakt, auch für Meilensteine); Frist; Abhängigkeiten **nur innerhalb desselben Ressorts**
 - **Wert eingeben** (✎), **Historie** (⟲), **Ist-Erreichung** (✓), **Bearbeiten** (⋯); der Autor kommt aus dem Login
 
 ## API

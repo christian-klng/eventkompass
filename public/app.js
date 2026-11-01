@@ -15,7 +15,7 @@ const el = (tag, attrs = {}, ...children) => {
 };
 
 const state = { me: null, data: { events: [], ressorts: [], kpis: [] }, users: [], eventId: null, view: 'overview', ressortId: null, adminTab: 'users', userFilter: 'all' };
-const TYPE_LABEL = { number: 'Anzahl', bool: 'Ja / Nein', date: 'Meilenstein', combo: 'Anzahl + Datum' };
+const TYPE_LABEL = { number: 'Anzahl', bool: 'Ja / Nein' };
 const PALETTE = ['#2563EB', '#7C3AED', '#DB2777', '#0F766E', '#B45309', '#0891B2', '#65A30D', '#9333EA', '#DC2626', '#4B5563'];
 const MIN_PASSWORD = 10;
 
@@ -54,7 +54,7 @@ const fmt = (n) => Number(n).toLocaleString('de-DE');
 const de = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('.') : '–');
 const deTime = (iso) => { const d = new Date(iso); return d.toLocaleDateString('de-DE') + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
 const todayIso = () => new Date().toISOString().slice(0, 10);
-const isNum = (k) => k.type === 'number' || k.type === 'combo';
+const isNum = (k) => k.type === 'number';
 const byId = (id) => state.data.kpis.find((k) => k.id === id);
 const ressort = (id) => state.data.ressorts.find((r) => r.id === id);
 const eventById = (id) => state.data.events.find((e) => e.id === id);
@@ -505,8 +505,8 @@ function modalHistory(k) {
 }
 
 function modalAchieve(k) {
-  const form = { yes: !!(k.type === 'combo' ? k.achievedFlag : k.achieved), value: k.current, date: k.achievedAt || todayIso() };
-  const askBool = k.type !== 'number', askNum = isNum(k);
+  const form = { yes: !!k.achieved, value: k.current, date: k.achievedAt || todayIso() };
+  const askNum = isNum(k), askBool = !askNum;
   const yesB = el('button', { onClick: () => { form.yes = true; sync(); } }, '✓ Ja, erreicht');
   const noB = el('button', { onClick: () => { form.yes = false; sync(); } }, '✕ Nein, offen');
   const num = inp('a-count', { type: 'number', step: 'any', value: k.current, onInput: (e) => { form.value = e.target.value; sync(); } });
@@ -516,14 +516,14 @@ function modalAchieve(k) {
   const od = openDeps(k);
   function sync() {
     yesB.classList.toggle('on', form.yes); noB.classList.toggle('on', !form.yes);
-    const reached = k.type === 'number' ? Number(form.value) >= k.target : k.type === 'combo' ? form.yes && Number(form.value) >= k.target : form.yes;
+    const reached = askNum ? Number(form.value) >= k.target : form.yes;
     dateField.style.display = reached ? '' : 'none';
   }
   sync();
   openModal(k.title, owner(k) + ' · Ist-Erreichung eintragen',
     [el('div', { class: 'info-box', style: 'display:flex;gap:10px;align-items:center;font-size:13px' }, el('span', { class: 'type-chip' }, TYPE_LABEL[k.type]), el('span', {}, 'Ziel: ', el('strong', {}, targetLabel(k)), k.deadline ? ' bis ' + de(k.deadline) : '')),
       askBool && el('div', { class: 'field' }, el('label', {}, 'Erreicht?'), el('div', { class: 'toggle' }, yesB, noB)),
-      askNum && field('Erreichte Anzahl', num, k.type === 'number' ? 'Liegt der Wert bei oder über dem Ziel, gilt die Kennzahl als erreicht.' : 'Bei „Anzahl + Datum“ müssen Ziel erreicht und „Ja“ gesetzt sein.', `(${k.unit || 'Wert'})`),
+      askNum && field('Erreichte Anzahl', num, 'Liegt der Wert bei oder über dem Ziel, gilt die Kennzahl als erreicht.', `(${k.unit || 'Wert'})`),
       dateField,
       field('Nachweis / Kommentar', note),
       od.length ? el('div', { class: 'warn-box' }, `Hinweis: ${od.length} Voraussetzung(en) noch offen (${od.map((d) => d.title).join(', ')}). Die Erreichung kann trotzdem eingetragen werden.`) : null],
@@ -554,7 +554,7 @@ function modalKpiForm(k, ressortId) {
   const numFields = el('div', { class: 'two' }, field('Zielwert', target), field('Einheit', unit));
   const curField = field(isNew ? 'Aktueller Ist-Wert' : 'Ist-Wert', current, isNew ? null : 'Zum Nachtragen bitte „Wert eingeben“ nutzen – hier nicht änderbar.');
   if (!isNew) current.disabled = true;
-  const syncType = () => { const n = type.value === 'number' || type.value === 'combo'; numFields.style.display = n ? '' : 'none'; curField.style.display = n ? '' : 'none'; };
+  const syncType = () => { const n = type.value === 'number'; numFields.style.display = n ? '' : 'none'; curField.style.display = n ? '' : 'none'; };
   type.addEventListener('change', syncType); syncType();
   if (!isNew) type.disabled = true;
   const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, ressortId: ownerSel.value, description: desc.value, deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value) });
