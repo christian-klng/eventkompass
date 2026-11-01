@@ -1,0 +1,12 @@
+services:
+  okr-tracker:
+    build: .
+    container_name: okr-tracker
+    ports:
+      - "8090:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      # SEED=false startet ohne Demo-Daten (nur beim allerersten Start relevant)
+      SEED: "true"
+    restart: unless-stopped
