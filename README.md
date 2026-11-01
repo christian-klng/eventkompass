@@ -45,6 +45,7 @@ Ohne `PORT` startet der Server auf 8080 – der Port ist auf diesem Mac schon be
 - **Rechte:** Alle sehen alle Kennzahlen und Historien. Bearbeiten nur im eigenen Ressort; Event-/Ressort-Zuordnung ändert nur ein Admin
 - **Führungsressort** je Event – pflegt die Event-Kennzahlen, hat sonst dieselben Rechte wie andere Ressorts
 - **Verwaltung** (Admin): Nutzer (freigeben, sperren, Rolle, Zuordnung, Einmal-Passwort), Events, Ressorts (bestätigen, zusammenführen)
+- **Archiv:** „Löschen“ archiviert Kennzahlen nur; Admins sehen sie je Ressort unter „Archiv“ und können sie wiederherstellen
 - Kennzahlen-Typen: **Anzahl** (Ziel- und Ist-Wert, automatisch erreicht) und **Ja/Nein** (von Hand abgehakt, auch für Meilensteine); Frist; Abhängigkeiten **nur innerhalb desselben Ressorts**
 - Ein Button je Kennzahl: **Bearbeiten** (✎) für eigene Kennzahlen – Ist-Wert bzw. Ja/Nein, Erreicht-Datum, Kommentar, Stammdaten und Historie in einem Dialog; bei fremden Kennzahlen **Historie ansehen** (⟲). Der Autor kommt aus dem Login
 
@@ -61,7 +62,8 @@ Alle Endpunkte außer den öffentlichen brauchen eine Session (Cookie). Schreibe
 | GET | `/api/state` | Events, Ressorts, Kennzahlen (für Admins plus Zahl offener Freigaben) | angemeldet |
 | POST/PUT | `/api/kpis[/:id]` | Kennzahl anlegen / bearbeiten (Stammdaten, `current`, `achieved`, `achievedAt`, `note`) | eigenes Ressort |
 | POST | `/api/kpis/:id/value` · `/achieve` | Ist-Wert / Erreichung `{value, achieved, achievedAt, note}` | eigenes Ressort |
-| DELETE | `/api/kpis/:id` | Kennzahl löschen | Admin |
+| DELETE | `/api/kpis/:id` | Kennzahl **archivieren** (wird nicht gelöscht) | Admin |
+| POST | `/api/kpis/:id/restore` | Archivierte Kennzahl wiederherstellen | Admin |
 | POST/PUT/DELETE | `/api/events[/:id]` · `/api/ressorts[/:id]` | Events, Ressorts | Admin |
 | POST | `/api/admin/ressorts/:id/merge` | Ressort in ein anderes überführen `{intoId}` | Admin |
 | GET/PUT/DELETE | `/api/admin/users[/:id]` | Nutzer verwalten | Admin |

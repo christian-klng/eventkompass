@@ -49,7 +49,9 @@ npm test                        # API-Tests, laufen ohne Docker
 - **Ressort:** `id, eventId, name, color, isLead, unreviewed, createdAt` (keine „Leitung“ – wer pflegt, ergibt sich aus der Nutzer-Zuordnung). Je Event genau ein `isLead` (nicht löschbar,
   wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
 - **KPI:** `id, eventId, ressortId` (nie null), `title, description, type, target, current, unit, deadline, achieved,
-  achievedAt, deps[], history[], createdAt, updatedAt`
+  achievedAt, archivedAt, archivedBy, deps[], history[], createdAt, updatedAt`
+  - Kennzahlen werden nie gelöscht: `DELETE` setzt `archivedAt` (Admin), `POST …/restore` hebt es auf. Archivierte sind
+    nicht bearbeitbar, im Frontend nur im Ressort-Archiv (Admin) sichtbar (`activeKpis()`/`evKpis()` filtern sie heraus).
   - Nur zwei Typen: `number` (Anzahl, erreicht automatisch bei `current >= target`) und `bool` (Ja/Nein, von Hand, auch für Meilensteine).
     Frühere Typen `date`/`combo` migriert `migrate()` (v3) zu `bool`/`number`.
   - `deps` nur auf KPIs mit gleicher `ressortId` (`cleanDeps()`); Ressortwechsel löst Abhängigkeiten in beide Richtungen
@@ -62,7 +64,7 @@ npm test                        # API-Tests, laufen ohne Docker
 ## Rechte (Server ist maßgeblich, UI blendet nur aus)
 
 - `canEditRessort(user, ressortId)`: Admin oder `user.ressortId === ressortId`. Gilt für Anlegen, Wert, Erreichung, Stammdaten.
-- Nur Admin: KPI löschen, KPI anderem Ressort zuordnen, Events/Ressorts verwalten, `/api/admin/*`, `/api/reset` (+ `ALLOW_RESET`).
+- Nur Admin: KPI archivieren/wiederherstellen, KPI anderem Ressort zuordnen, Events/Ressorts verwalten, `/api/admin/*`, `/api/reset` (+ `ALLOW_RESET`).
 - Das Führungsressort hat **keine** Sonderrechte – es pflegt nur seine eigenen (Event-)Kennzahlen.
 - Schutz: letzter aktiver Admin kann nicht herabgestuft/gesperrt/gelöscht werden; Sperren/Einmal-Passwort beendet Sessions.
 - Neue schreibende Endpunkte: Rechte prüfen **und** einen Test in `test/api.test.js` ergänzen.

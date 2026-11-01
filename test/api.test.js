@@ -334,3 +334,24 @@ test('Bearbeiten speichert Ist-Wert, Erreichung und Kommentar mit Historie', asy
   assert.equal((await a('PUT', `/api/kpis/${k.id}`, { title: 'Neu', target: 0 })).status, 400);
   assert.equal((await a('GET', '/api/state')).body.kpis.find((x) => x.id === k.id).title, before.title);
 });
+
+test('Löschen archiviert nur; Admins stellen wieder her', async () => {
+  const a = await adminClient();
+  const k = (await a('POST', '/api/kpis', { ressortId: 'r-technik', title: 'WLAN getestet', type: 'bool', deps: ['k-location'] })).body;
+  const m = await member(a, 'r-technik');
+  assert.equal((await m('DELETE', `/api/kpis/${k.id}`)).status, 403, 'Mitglieder archivieren nicht');
+  const arch = await a('DELETE', `/api/kpis/${k.id}`);
+  assert.equal(arch.status, 200);
+  assert.ok(arch.body.archivedAt);
+  assert.equal(arch.body.history[0].kind, 'Archiviert');
+  let st = (await a('GET', '/api/state')).body;
+  assert.ok(st.kpis.some((x) => x.id === k.id), 'bleibt in den Daten');
+  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { title: 'x' })).status, 400, 'archiviert = nicht bearbeitbar');
+  assert.equal((await m('POST', `/api/kpis/${k.id}/value`, { value: 1 })).status, 400);
+  assert.equal((await a('PUT', '/api/kpis/k-stream', { deps: ['k-location', k.id] })).status, 400, 'nicht neu als Voraussetzung wählbar');
+  assert.equal((await m('POST', `/api/kpis/${k.id}/restore`)).status, 403);
+  const back = await a('POST', `/api/kpis/${k.id}/restore`);
+  assert.equal(back.body.archivedAt, null);
+  assert.equal(back.body.history[0].kind, 'Wiederhergestellt');
+  assert.deepEqual(back.body.deps, ['k-location'], 'Abhängigkeiten bleiben erhalten');
+});

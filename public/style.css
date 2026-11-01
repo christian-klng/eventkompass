@@ -132,6 +132,11 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .hist .note{font-size:13px;color:#4B5563;margin-top:6px;padding:8px 10px;border-radius:8px;background:#F9FAFB}
 .hist-box{border-top:1px solid var(--line);padding-top:14px;margin-top:4px}
 .hist-box summary{cursor:pointer;font-weight:600;font-size:13px;margin-bottom:12px}
+.archive summary{cursor:pointer;list-style:none;border-bottom:none}
+.archive[open] summary{border-bottom:1px solid var(--line)}
+.archive summary::-webkit-details-marker{display:none}
+.archive summary h2::before{content:'▸ ';color:var(--muted)}
+.archive[open] summary h2::before{content:'▾ '}
 
 /* Toast */
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:10px;font-size:13px;z-index:60;box-shadow:0 10px 30px rgba(0,0,0,.2)}
