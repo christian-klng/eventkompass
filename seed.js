@@ -2,14 +2,14 @@
 // Abhängigkeiten nur innerhalb eines Ressorts; Event-Kennzahlen gehören dem Führungsressort.
 export function seedState() {
   const ev = { id: 'ev-summit-2027', name: 'Summit 2027', startDate: '2027-03-15', endDate: '2027-03-16', createdAt: '2026-09-01T09:00:00.000Z' };
-  const R = (id, name, lead, color, isLead = false) => ({ id, eventId: ev.id, name, lead, color, isLead, unreviewed: false, createdAt: '2026-09-01T09:00:00.000Z' });
+  const R = (id, name, color, isLead = false) => ({ id, eventId: ev.id, name, color, isLead, unreviewed: false, createdAt: '2026-09-01T09:00:00.000Z' });
   const ressorts = [
-    R('r-fuehrung', 'Führung', 'Christian Klang', '#111827', true),
-    R('r-marketing', 'Marketing', 'Lena Hartmann', '#2563EB'),
-    R('r-sponsoring', 'Sponsoring', 'Jonas Weber', '#7C3AED'),
-    R('r-programm', 'Programm', 'Aylin Demir', '#DB2777'),
-    R('r-technik', 'Technik & Location', 'Marco Brandt', '#0F766E'),
-    R('r-teilnehmer', 'Teilnehmermanagement', 'Sara Köhler', '#B45309'),
+    R('r-fuehrung', 'Führung', '#111827', true),
+    R('r-marketing', 'Marketing', '#2563EB'),
+    R('r-sponsoring', 'Sponsoring', '#7C3AED'),
+    R('r-programm', 'Programm', '#DB2777'),
+    R('r-technik', 'Technik & Location', '#0F766E'),
+    R('r-teilnehmer', 'Teilnehmermanagement', '#B45309'),
   ];
   const H = (at, who, from, to, note = '', kind = 'Wert aktualisiert') => ({ id: 'h-' + Math.random().toString(36).slice(2, 8), at: at + 'T10:00:00.000Z', who, from, to, note, kind });
   const K = (id, ressortId, title, type, target, current, unit, deadline, achievedAt, deps, history) => ({

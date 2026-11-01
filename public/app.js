@@ -342,9 +342,8 @@ function ressortCard(r) {
   if (blocked) badges.push(pill({ key: 'crit', label: blocked + ' blockiert' }));
   if (!risky && !blocked && ks.length) badges.push(pill({ key: 'done', label: 'alles im Plan' }));
   if (!ks.length) badges.push(pill({ key: 'open', label: 'noch keine Kennzahlen' }));
-  const initials = (r.lead || '?').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
   return el('button', { class: 'card ressort-card', onClick: () => go('ressort', r.id) },
-    el('div', { class: 'top' }, dot(r.color), el('span', { class: 'name' }, r.name), el('span', { class: 'avatar', title: r.lead }, initials)),
+    el('div', { class: 'top' }, dot(r.color), el('span', { class: 'name' }, r.name)),
     el('div', { style: 'display:flex;justify-content:space-between' }, el('span', { class: 'muted small' }, `${ks.length} Kennzahlen · ${done} erreicht`), el('span', { class: 'strong num' }, p + '%')),
     el('div', { class: 'bar' }, el('div', { class: 'bar-fill', style: `width:${p}%;background:${r.color}` })),
     el('div', { class: 'chips' }, ...badges));
@@ -363,7 +362,7 @@ function renderRessort(main) {
       el('div', {},
         el('div', { class: 'muted small strong' }, el('button', { class: 'link-btn', onClick: () => go('overview') }, 'Übersicht'), ' / Ressort'),
         el('h1', { style: 'display:flex;align-items:center;gap:10px' }, dot(r.color), r.name),
-        el('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, 'Leitung ' + (r.lead || '–') + ' · ' + hint + (editable ? '' : ' · nur Lesen'))),
+        el('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, hint + (editable ? '' : ' · nur Lesen'))),
       el('div', { style: 'display:flex;gap:8px' },
         isAdmin() ? el('button', { class: 'btn ghost', onClick: () => modalRessortForm(r) }, 'Ressort bearbeiten') : null,
         editable ? el('button', { class: 'btn', onClick: () => modalKpiForm(null, r.id) }, '+ Kennzahl') : null)),
@@ -452,10 +451,9 @@ function adminRessorts(main) {
     el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, `Ressorts von „${ev.name}“`), el('div', { class: 'muted small' }, 'Anderes Event? Oben in der Event-Auswahl wechseln.')),
       el('button', { class: 'btn small-btn', onClick: () => modalRessortForm(null) }, '+ Ressort')),
     el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
-      el('thead', {}, el('tr', {}, ...['Ressort', 'Leitung', 'Kennzahlen', 'Nutzer', ''].map((h) => el('th', {}, h)))),
+      el('thead', {}, el('tr', {}, ...['Ressort', 'Kennzahlen', 'Nutzer', ''].map((h) => el('th', {}, h)))),
       el('tbody', {}, ...rs.map((r) => el('tr', {},
         el('td', {}, el('span', { class: 'with-dot strong' }, dot(r.color), r.name, r.isLead ? el('span', { class: 'chip lead' }, 'Führung · Event-Kennzahlen') : null, r.unreviewed ? el('span', { class: 'chip open' }, 'neu, ungeprüft') : null)),
-        el('td', {}, r.lead || '–'),
         el('td', { class: 'num' }, state.data.kpis.filter((k) => k.ressortId === r.id).length),
         el('td', { class: 'num' }, state.users.filter((u) => u.ressortId === r.id).length),
         el('td', { class: 'actions' },
@@ -576,11 +574,11 @@ function modalKpiForm(k, ressortId) {
 function modalRessortForm(r) {
   const isNew = !r;
   const name = inp('r-name', { value: r?.name || '', placeholder: 'z. B. Marketing' });
-  const lead = inp('r-lead', { value: r?.lead || '', placeholder: 'Verantwortliche Person' });
   const color = inp('r-color', { type: 'color', value: r?.color || PALETTE[evRessorts().length % PALETTE.length], style: 'width:60px;padding:2px' });
-  const payload = () => ({ name: name.value.trim(), lead: lead.value.trim(), color: color.value });
+  const payload = () => ({ name: name.value.trim(), color: color.value });
   openModal(isNew ? 'Neues Ressort' : r.name, isNew ? 'Ressort anlegen' : r.isLead ? 'Führungsressort bearbeiten' : 'Ressort bearbeiten',
-    [field('Name', name), field('Leitung', lead), field('Farbe', color),
+    [field('Name', name), field('Farbe', color),
+      !isNew ? el('div', { class: 'muted small' }, 'Wer das Ressort pflegt, legst du in der Nutzerliste fest (Verwaltung → Nutzer).') : null,
       r?.isLead ? el('div', { class: 'muted small' }, 'Das Führungsressort pflegt die Event-Kennzahlen. Es lässt sich umbenennen, aber nicht löschen.') : null],
     (close) => [
       !isNew && !r.isLead && el('button', { class: 'btn danger left', onClick: () => confirm(`„${r.name}“ und alle zugehörigen Kennzahlen löschen?`) && act(() => api('DELETE', `/api/ressorts/${r.id}`), 'Ressort gelöscht').then((ok) => { if (!ok) return; close(); if (state.view === 'ressort') go('overview'); }) }, 'Löschen'),

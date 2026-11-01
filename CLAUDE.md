@@ -46,7 +46,7 @@ npm test                        # API-Tests, laufen ohne Docker
 - Nicht von Hand ändern, während der Container läuft (Zustand liegt im Speicher und wird komplett überschrieben).
 - `{ version, events, ressorts, kpis, users, sessions, settings }` – `GET /api/state` gibt **nur** events/ressorts/kpis heraus,
   nie `users`, `sessions` oder Passwort-Hashes. Nutzer nach außen immer über `publicUser()`.
-- **Ressort:** `id, eventId, name, lead, color, isLead, unreviewed, createdAt`. Je Event genau ein `isLead` (nicht löschbar,
+- **Ressort:** `id, eventId, name, color, isLead, unreviewed, createdAt` (keine „Leitung“ – wer pflegt, ergibt sich aus der Nutzer-Zuordnung). Je Event genau ein `isLead` (nicht löschbar,
   wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
 - **KPI:** `id, eventId, ressortId` (nie null), `title, description, type, target, current, unit, deadline, achieved,
   achievedFlag, achievedAt, deps[], history[], createdAt, updatedAt`

@@ -94,7 +94,6 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .ressort-card{text-align:left;padding:18px;cursor:pointer;display:flex;flex-direction:column;gap:12px;color:var(--ink);width:100%}
 .ressort-card:hover{border-color:#C7D2FE}
 .ressort-card .top{display:flex;align-items:center;gap:10px}.ressort-card .top .name{font-weight:600;font-size:15px;flex:1}
-.avatar{width:28px;height:28px;border-radius:50%;background:var(--line-soft);display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--ink-2)}
 
 .sec-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
 
