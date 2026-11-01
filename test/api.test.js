@@ -282,3 +282,31 @@ test('Nur noch die Typen Anzahl und Ja/Nein', async () => {
   const st = await a('GET', '/api/state');
   assert.ok(st.body.kpis.every((k) => ['number', 'bool'].includes(k.type)));
 });
+
+test('Anzahl braucht einen Zielwert > 0 und ist ohne Werte nicht erreicht', async () => {
+  const a = await adminClient();
+  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'ohne Ziel', type: 'number' })).status, 400);
+  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'Ziel 0', type: 'number', target: 0 })).status, 400);
+  const k = (await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'Leads', type: 'number', target: 50 })).body;
+  assert.equal(k.achieved, false);
+  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { target: 0 })).status, 400);
+  const done = (await a('POST', `/api/kpis/${k.id}/value`, { value: 50 })).body;
+  assert.equal(done.achieved, true);
+  assert.ok(done.achievedAt, 'Datum beim Erreichen gesetzt');
+  // Ja/Nein braucht keinen Zielwert
+  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'Go-live', type: 'bool' })).body.achieved, false);
+});
+
+test('Migration: Anzahl mit Ziel 0 gilt nicht mehr als erreicht', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-test-'));
+  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({
+    events: [{ id: 'e1', name: 'Alt' }], ressorts: [{ id: 'r1', eventId: 'e1', name: 'Team', color: '#000' }],
+    kpis: [{ id: 'k0', eventId: 'e1', ressortId: 'r1', title: 'x', type: 'number', target: 0, current: 0, achieved: true, achievedAt: null, deps: [], history: [] }],
+  }));
+  const { store } = await createApp({ dataDir: dir, log: () => {} });
+  try {
+    assert.equal(store.state.kpis[0].achieved, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

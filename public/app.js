@@ -551,7 +551,7 @@ function modalKpiForm(k, ressortId) {
       : [el('span', { class: 'muted small' }, 'Keine weiteren Kennzahlen in diesem Ressort.')]));
   };
   ownerSel.addEventListener('change', syncDeps); syncDeps();
-  const numFields = el('div', { class: 'two' }, field('Zielwert', target), field('Einheit', unit));
+  const numFields = el('div', { class: 'two' }, field('Zielwert', target, null, '(Pflicht)'), field('Einheit', unit));
   const curField = field(isNew ? 'Aktueller Ist-Wert' : 'Ist-Wert', current, isNew ? null : 'Zum Nachtragen bitte „Wert eingeben“ nutzen – hier nicht änderbar.');
   if (!isNew) current.disabled = true;
   const syncType = () => { const n = type.value === 'number'; numFields.style.display = n ? '' : 'none'; curField.style.display = n ? '' : 'none'; };
@@ -568,7 +568,10 @@ function modalKpiForm(k, ressortId) {
     (close) => [
       !isNew && isAdmin() && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ wirklich löschen? Die Historie geht verloren.`) && act(() => api('DELETE', `/api/kpis/${k.id}`), 'Kennzahl gelöscht').then(closeOn(close)) }, 'Löschen'),
       cancelBtn(close),
-      el('button', { class: 'btn', onClick: () => { if (!title.value.trim()) return alert('Bitte eine Bezeichnung angeben.'); act(() => isNew ? api('POST', '/api/kpis', payload()) : api('PUT', `/api/kpis/${k.id}`, payload()), isNew ? 'Kennzahl angelegt' : 'Kennzahl gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')], true);
+      el('button', { class: 'btn', onClick: () => {
+        if (!title.value.trim()) return alert('Bitte eine Bezeichnung angeben.');
+        if (type.value === 'number' && !(Number(target.value) > 0)) return alert('Bitte einen Zielwert größer als 0 angeben.');
+        act(() => isNew ? api('POST', '/api/kpis', payload()) : api('PUT', `/api/kpis/${k.id}`, payload()), isNew ? 'Kennzahl angelegt' : 'Kennzahl gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')], true);
 }
 
 function modalRessortForm(r) {
