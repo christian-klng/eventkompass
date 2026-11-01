@@ -103,6 +103,7 @@ function startApp(user) {
 function showAuth(mode, notice) {
   $('#app').hidden = true;
   $('#modal-root').replaceChildren();
+  document.title = 'KPI';
   const root = $('#auth-root');
   root.hidden = false;
   const card = el('div', { class: 'auth-card' }, el('div', { class: 'brand' }, el('span', { class: 'brand-mark', 'aria-hidden': 'true' }), 'Eventkompass'));
@@ -217,15 +218,28 @@ function render() {
 }
 
 function renderTopbar() {
-  const sel = $('#event-select');
-  sel.replaceChildren(...state.data.events.map((e) => el('option', { value: e.id, selected: e.id === state.eventId }, e.name + (e.startDate ? ' · ' + de(e.startDate) : ''))));
+  const ev = curEvent(); const events = state.data.events;
+  document.title = ev ? ev.name + ' – KPI' : 'KPI';
+  // Titel oben links ist das Event; bei mehreren Events zugleich die Auswahl.
+  // Die Auswahl liegt unsichtbar über dem Namen – so passt die Breite immer zum Titel.
+  $('#event-title').replaceChildren(events.length > 1
+    ? el('label', { class: 'title-picker' }, el('span', {}, ev?.name || 'Event wählen'), el('span', { class: 'chev', 'aria-hidden': 'true' }, '▾'),
+      el('select', { class: 'title-select', 'aria-label': 'Event wählen', onChange: (e) => { state.eventId = e.target.value; if (state.view !== 'admin') state.view = 'overview'; render(); } },
+        ...events.map((e) => el('option', { value: e.id, selected: e.id === state.eventId }, e.name))))
+    : el('span', {}, ev?.name || 'Kein Event'));
   const me = state.me;
   const where = isAdmin() ? 'Admin' : [ressort(me.ressortId)?.name, eventById(me.eventId)?.name].filter(Boolean).join(' · ') || 'Kein Ressort zugeordnet';
-  $('#user-box').replaceChildren(
-    el('div', { class: 'user-info' }, el('div', { class: 'strong' }, me.name), el('div', { class: 'muted small' }, where)),
-    el('button', { class: 'btn ghost small-btn', onClick: modalPassword }, 'Passwort ändern'),
-    el('button', { class: 'btn ghost small-btn', onClick: logout }, 'Abmelden'));
+  const menu = el('div', { class: 'menu', role: 'menu', hidden: true },
+    el('button', { class: 'menu-item', role: 'menuitem', onClick: () => { menu.hidden = true; modalPassword(); } }, 'Passwort ändern'),
+    el('button', { class: 'menu-item', role: 'menuitem', onClick: logout }, 'Abmelden'));
+  const toggle = el('button', { class: 'user-btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', onClick: (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    toggle.setAttribute('aria-expanded', String(!menu.hidden));
+  } }, el('span', { class: 'user-info' }, el('span', { class: 'strong' }, me.name), el('span', { class: 'muted small' }, where)), el('span', { class: 'chev', 'aria-hidden': 'true' }, '▾'));
+  $('#user-box').replaceChildren(toggle, menu);
 }
+const closeMenus = () => document.querySelectorAll('.menu').forEach((m) => { m.hidden = true; m.previousElementSibling?.setAttribute('aria-expanded', 'false'); });
 
 function renderSidebar() {
   document.querySelectorAll('.nav[data-view]').forEach((b) => b.classList.toggle('active', state.view === b.dataset.view));
@@ -299,14 +313,12 @@ function renderOverview(main) {
     el('div', { class: 'head-row' },
       el('div', {}, el('div', { class: 'muted small strong' }, 'Event · ' + ev.name), el('h1', {}, 'Zielerreichung gesamt')),
       lead && canEditRessort(lead.id) ? el('div', { style: 'display:flex;gap:8px' }, el('button', { class: 'btn', onClick: () => modalKpiForm(null, lead.id) }, '+ Event-Kennzahl')) : null),
-    el('div', { class: 'grid grid-5' },
+    el('div', { class: 'grid grid-3' },
       el('div', { class: 'card ring-card' },
         svgEl(`<svg width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="Gesamtfortschritt ${total} Prozent"><circle cx="36" cy="36" r="28" fill="none" stroke="#E5E7EB" stroke-width="8"/><circle cx="36" cy="36" r="28" fill="none" stroke="#4F46E5" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(total / 100) * circ} ${circ}" transform="rotate(-90 36 36)"/><text x="36" y="41" text-anchor="middle" font-size="15" font-weight="700" fill="#111827" font-family="Inter,sans-serif">${total}%</text></svg>`),
         el('div', {}, el('div', { class: 'muted small' }, 'Gesamt'), el('div', { class: 'strong', style: 'font-size:13px' }, `${done} von ${ks.length} erreicht`))),
       stat('Erreicht', done, `von ${ks.length} Kennzahlen`, 'var(--ok)'),
-      stat('Im Plan', stats.filter((s) => s.key === 'ok').length, 'über 70 % Zielerreichung', 'var(--plan)'),
-      stat('Gefährdet / überfällig', stats.filter((s) => ['risk', 'crit', 'late'].includes(s.key)).length, 'braucht Aufmerksamkeit', 'var(--warn)'),
-      stat('Blockiert', ks.filter((k) => !k.achieved && openDeps(k).length).length, 'warten auf Voraussetzungen', 'var(--crit)')),
+      stat('Gefährdet / überfällig', stats.filter((s) => ['risk', 'crit', 'late'].includes(s.key)).length, 'braucht Aufmerksamkeit', 'var(--warn)')),
     el('section', { class: 'card' },
       el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, 'Event-Kennzahlen'), el('div', { class: 'muted small' }, lead ? `Übergeordnete Ziele – gepflegt vom Ressort „${lead.name}“` : 'Übergeordnete Ziele'))),
       kpiTable(leadKs, { empty: 'Noch keine Event-Kennzahlen.' })),
@@ -660,8 +672,8 @@ function modalPassword() {
 }
 
 // ---------- Start ----------
-$('#event-select').addEventListener('change', (e) => { state.eventId = e.target.value; if (state.view !== 'admin') state.view = 'overview'; render(); });
 $('#btn-new-ressort').addEventListener('click', () => curEvent() ? modalRessortForm(null) : alert('Bitte zuerst ein Event anlegen.'));
 document.querySelectorAll('.nav[data-view]').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
-document.addEventListener('keydown', (e) => e.key === 'Escape' && $('#modal-root').replaceChildren());
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('#modal-root').replaceChildren(); closeMenus(); } });
+document.addEventListener('click', (e) => !e.target.closest('.menu') && closeMenus());
 api('GET', '/api/auth/me').then(({ user }) => startApp(user)).catch(() => showAuth('login'));

@@ -21,8 +21,11 @@ h2{margin:0;font-size:15px;font-weight:600}
 .topbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:0 24px;min-height:56px;background:#fff;border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px}
 .brand-mark{width:28px;height:28px;border-radius:8px;background:var(--accent);display:inline-block}
-.divider{width:1px;height:24px;background:var(--line)}
-.topbar select{height:34px}
+.event-title{font-weight:700;font-size:17px;letter-spacing:-.01em;min-width:0}
+.title-picker{position:relative;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;margin-left:-8px;border-radius:8px;cursor:pointer}
+.title-picker:hover{background:var(--line-soft)}
+.title-picker:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.title-select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 
 /* Layout */
 .layout{display:flex;flex-wrap:wrap;min-height:calc(100vh - 56px)}
@@ -142,8 +145,14 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .error-box{padding:10px 14px;border-radius:10px;background:var(--crit-bg);border:1px solid #FCA5A5;font-size:13px;color:var(--crit-ink)}
 
 /* Nutzer oben rechts */
-.user-box{display:flex;align-items:center;gap:8px}
-.user-info{text-align:right;line-height:1.25;margin-right:4px}
+.user-menu{position:relative}
+.user-btn{display:flex;align-items:center;gap:8px;border:none;background:none;cursor:pointer;padding:6px 8px;border-radius:8px;text-align:right}
+.user-btn:hover,.user-btn[aria-expanded="true"]{background:var(--line-soft)}
+.user-info{display:flex;flex-direction:column;line-height:1.25}
+.chev{color:var(--muted);font-size:12px}
+.menu{position:absolute;right:0;top:calc(100% + 6px);min-width:180px;background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.12);padding:6px;z-index:40;display:flex;flex-direction:column}
+.menu-item{height:36px;padding:0 10px;border:none;background:none;border-radius:6px;text-align:left;cursor:pointer;font-weight:500}
+.menu-item:hover{background:var(--line-soft)}
 .mine{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--accent-ink);background:var(--accent-soft);padding:1px 6px;border-radius:999px}
 
 /* Verwaltung */
@@ -164,4 +173,4 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .admin-table td:first-child{min-width:200px}
 .admin-table .actions .btn{margin-left:4px}
 .with-dot{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
-@media (max-width:640px){.user-info{display:none}.auth-card{padding:22px}}
+@media (max-width:640px){.user-info .small{display:none}.auth-card{padding:22px}}
