@@ -73,6 +73,8 @@ npm test                        # API-Tests, laufen ohne Docker
   `Element.append` bei bedingten Kindern (sonst erscheint „null“ als Text).
 - Globaler `state` (`me, data, users, eventId, view, ressortId, adminTab, userFilter`). Änderungen über
   `act(fn, msg)` → API → `reload()` → `render()`; `act` liefert `true/false`, Dialoge schließen mit `closeOn(close)`.
+- KPI-Zeilen haben genau einen Button: `modalKpiForm(k)` (eigene: Stand, Stammdaten, Historie; speichert alles per `PUT /api/kpis/:id`)
+  oder `modalHistory(k)` (fremde, nur lesen).
 - Ansichten: `overview`, `ressort`, `admin` (Reiter Nutzer / Events / Ressorts). Anmeldung: `showAuth('login'|'register'|'pending'|'password')`.
 - `api()` leitet bei 401 bzw. `PASSWORD_CHANGE_REQUIRED` selbst zur Anmeldung um (Fehler mit `silent`).
 - Zahlen/Daten deutsch formatieren (`toLocaleString('de-DE')`, `de()`, `deTime()`).

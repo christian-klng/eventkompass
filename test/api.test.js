@@ -310,3 +310,27 @@ test('Migration: Anzahl mit Ziel 0 gilt nicht mehr als erreicht', async () => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Bearbeiten speichert Ist-Wert, Erreichung und Kommentar mit Historie', async () => {
+  const a = await adminClient();
+  const k = (await a('POST', '/api/kpis', { ressortId: 'r-programm', title: 'Workshops', type: 'number', target: 10 })).body;
+  let r = await a('PUT', `/api/kpis/${k.id}`, { current: 10, achievedAt: '2026-10-30', note: 'Alle geplant' });
+  assert.equal(r.body.achieved, true);
+  assert.equal(r.body.achievedAt, '2026-10-30');
+  assert.equal(r.body.history[0].kind, 'Wert aktualisiert');
+  assert.equal(r.body.history[0].note, 'Alle geplant');
+  r = await a('PUT', `/api/kpis/${k.id}`, { note: 'Nur ein Kommentar' });
+  assert.equal(r.body.history[0].kind, 'Kommentar');
+  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { current: 'abc' })).status, 400);
+  const b = (await a('POST', '/api/kpis', { ressortId: 'r-programm', title: 'Agenda online', type: 'bool' })).body;
+  r = await a('PUT', `/api/kpis/${b.id}`, { achieved: true, achievedAt: '2026-10-31' });
+  assert.equal(r.body.achieved, true);
+  assert.equal(r.body.achievedAt, '2026-10-31');
+  assert.equal(r.body.history[0].kind, 'Erreichung eingetragen');
+  r = await a('PUT', `/api/kpis/${b.id}`, { achieved: false });
+  assert.equal(r.body.achievedAt, null);
+  // Abgelehnte Anfrage ändert nichts
+  const before = (await a('GET', '/api/state')).body.kpis.find((x) => x.id === k.id);
+  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { title: 'Neu', target: 0 })).status, 400);
+  assert.equal((await a('GET', '/api/state')).body.kpis.find((x) => x.id === k.id).title, before.title);
+});

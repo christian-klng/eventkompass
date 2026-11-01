@@ -46,7 +46,7 @@ Ohne `PORT` startet der Server auf 8080 – der Port ist auf diesem Mac schon be
 - **Führungsressort** je Event – pflegt die Event-Kennzahlen, hat sonst dieselben Rechte wie andere Ressorts
 - **Verwaltung** (Admin): Nutzer (freigeben, sperren, Rolle, Zuordnung, Einmal-Passwort), Events, Ressorts (bestätigen, zusammenführen)
 - Kennzahlen-Typen: **Anzahl** (Ziel- und Ist-Wert, automatisch erreicht) und **Ja/Nein** (von Hand abgehakt, auch für Meilensteine); Frist; Abhängigkeiten **nur innerhalb desselben Ressorts**
-- **Wert eingeben** (✎), **Historie** (⟲), **Ist-Erreichung** (✓), **Bearbeiten** (⋯); der Autor kommt aus dem Login
+- Ein Button je Kennzahl: **Bearbeiten** (✎) für eigene Kennzahlen – Ist-Wert bzw. Ja/Nein, Erreicht-Datum, Kommentar, Stammdaten und Historie in einem Dialog; bei fremden Kennzahlen **Historie ansehen** (⟲). Der Autor kommt aus dem Login
 
 ## API
 
@@ -59,7 +59,7 @@ Alle Endpunkte außer den öffentlichen brauchen eine Session (Cookie). Schreibe
 | POST | `/api/auth/register` · `/login` · `/logout` | Konto, Anmeldung | öffentlich |
 | GET / POST | `/api/auth/me` · `/api/auth/password` | Eigenes Konto, Passwort ändern | angemeldet |
 | GET | `/api/state` | Events, Ressorts, Kennzahlen (für Admins plus Zahl offener Freigaben) | angemeldet |
-| POST/PUT | `/api/kpis[/:id]` | Kennzahl anlegen / Stammdaten | eigenes Ressort |
+| POST/PUT | `/api/kpis[/:id]` | Kennzahl anlegen / bearbeiten (Stammdaten, `current`, `achieved`, `achievedAt`, `note`) | eigenes Ressort |
 | POST | `/api/kpis/:id/value` · `/achieve` | Ist-Wert / Erreichung `{value, achieved, achievedAt, note}` | eigenes Ressort |
 | DELETE | `/api/kpis/:id` | Kennzahl löschen | Admin |
 | POST/PUT/DELETE | `/api/events[/:id]` · `/api/ressorts[/:id]` | Events, Ressorts | Admin |

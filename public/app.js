@@ -286,16 +286,12 @@ function kpiTable(kpis, opts = {}) {
     $('.kpi-dates', row).replaceChildren(el('div', {}, de(k.deadline)), el('div', { class: 'small', style: 'color:' + (k.achieved ? 'var(--ok-ink)' : 'var(--muted)') }, k.achieved ? 'erreicht am ' + de(k.achievedAt) : 'noch nicht erreicht'));
     const deps = k.deps.map(byId).filter(Boolean);
     $('.kpi-deps', row).replaceChildren(...(deps.length ? deps.map((d) => el('span', { class: 'chip ' + (d.achieved ? 'done' : 'open'), title: d.title }, d.title.length > 24 ? d.title.slice(0, 23) + '…' : d.title)) : [el('span', { class: 'muted small' }, '–')]));
-    $('.act-history', row).addEventListener('click', () => modalHistory(k));
-    if (canEditKpi(k)) {
-      $('.act-value', row).addEventListener('click', () => modalValue(k));
-      if (!isNum(k)) $('.act-value', row).disabled = true;
-      $('.act-achieve', row).addEventListener('click', () => modalAchieve(k));
-      $('.act-edit', row).addEventListener('click', () => modalKpiForm(k));
-    } else {
-      // Fremde Kennzahlen: nur lesen (Historie bleibt für alle sichtbar)
-      ['.act-value', '.act-achieve', '.act-edit'].forEach((c) => $(c, row).remove());
-    }
+    // Ein Button je Zeile: eigene Kennzahlen bearbeiten, fremde nur ansehen (inkl. Historie)
+    const btn = $('.act-open', row);
+    const label = canEditKpi(k) ? 'Bearbeiten' : 'Historie ansehen';
+    btn.textContent = canEditKpi(k) ? '✎' : '⟲';
+    btn.title = label; btn.setAttribute('aria-label', label);
+    btn.addEventListener('click', () => (canEditKpi(k) ? modalKpiForm(k) : modalHistory(k)));
     tb.append(row);
   }
   return el('div', { class: 'table-wrap' }, table);
@@ -481,55 +477,25 @@ const cancelBtn = (close) => el('button', { class: 'btn ghost', onClick: close }
 const infoBox = (l, v) => el('div', { class: 'info-box' }, el('div', { class: 'l' }, l), el('div', { class: 'v num' }, v));
 const closeOn = (close) => (ok) => ok && close();
 
-function modalValue(k) {
-  const v = inp('f-value', { type: 'number', step: 'any', value: k.current });
-  const note = el('textarea', { id: 'f-note', rows: 3, placeholder: 'Woher kommt der Wert? Was hat sich geändert?' });
-  openModal(k.title, owner(k) + ' · Wert eingeben',
-    [el('div', { class: 'two' }, infoBox('Zielwert', targetLabel(k)), infoBox('Bisheriger Ist-Wert', valueLabel(k))),
-      field('Neuer Ist-Wert', v, null, `(${k.unit || 'Wert'})`),
-      field('Kommentar', note, 'Erscheint in der Historie.'),
-      el('div', { class: 'muted small' }, `Wird als Änderung von ${state.me.name} protokolliert.`)],
-    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/kpis/${k.id}/value`, { value: v.value, note: note.value }), 'Wert gespeichert').then(closeOn(close)) }, 'Speichern')]);
-}
-
-function modalHistory(k) {
-  const items = k.history.map((h, i) => el('div', { class: 'hist' },
+// Historie als Zeitleiste (neueste zuerst)
+function historyItems(k) {
+  if (!k.history.length) return [el('div', { class: 'muted small' }, 'Noch keine Änderungen protokolliert.')];
+  return k.history.map((h, i) => el('div', { class: 'hist' },
     el('div', { class: 'rail' }, dot(i === 0 ? 'var(--accent)' : '#D1D5DB'), el('div', { class: 'line' + (i === k.history.length - 1 ? ' end' : '') })),
     el('div', { class: 'body' },
       el('div', { class: 'row1' }, el('span', { class: 'strong', style: 'font-size:13px' }, h.kind), el('span', { class: 'muted small', style: 'white-space:nowrap' }, deTime(h.at) + ' · ' + h.who)),
       el('div', { class: 'num', style: 'margin-top:2px' }, h.from ? el('span', { class: 'muted' }, h.from) : null, h.from ? el('span', { style: 'color:#9CA3AF;margin:0 6px' }, '→') : null, el('span', { class: 'strong' }, h.to)),
       h.note ? el('div', { class: 'note' }, h.note) : null)));
+}
+
+// Nur lesen – für Kennzahlen anderer Ressorts
+function modalHistory(k) {
   openModal(k.title, owner(k) + ' · Historie',
-    items.length ? items : [el('div', { class: 'empty' }, 'Noch keine Änderungen protokolliert.')],
+    [el('div', { class: 'two' }, infoBox('Ziel', targetLabel(k)), infoBox('Ist', valueLabel(k))), ...historyItems(k)],
     (close) => [el('span', { class: 'muted small left', style: 'align-self:center' }, `${k.history.length} Einträge · neueste zuerst`), el('button', { class: 'btn ghost', onClick: close }, 'Schließen')], true);
 }
 
-function modalAchieve(k) {
-  const form = { yes: !!k.achieved, value: k.current, date: k.achievedAt || todayIso() };
-  const askNum = isNum(k), askBool = !askNum;
-  const yesB = el('button', { onClick: () => { form.yes = true; sync(); } }, '✓ Ja, erreicht');
-  const noB = el('button', { onClick: () => { form.yes = false; sync(); } }, '✕ Nein, offen');
-  const num = inp('a-count', { type: 'number', step: 'any', value: k.current, onInput: (e) => { form.value = e.target.value; sync(); } });
-  const date = inp('a-date', { type: 'date', value: form.date, onInput: (e) => (form.date = e.target.value) });
-  const dateField = field('Erreicht am', date);
-  const note = el('textarea', { id: 'a-note', rows: 2, placeholder: 'Link zum Beleg, Kontext, Besonderheiten …' });
-  const od = openDeps(k);
-  function sync() {
-    yesB.classList.toggle('on', form.yes); noB.classList.toggle('on', !form.yes);
-    const reached = askNum ? Number(form.value) >= k.target : form.yes;
-    dateField.style.display = reached ? '' : 'none';
-  }
-  sync();
-  openModal(k.title, owner(k) + ' · Ist-Erreichung eintragen',
-    [el('div', { class: 'info-box', style: 'display:flex;gap:10px;align-items:center;font-size:13px' }, el('span', { class: 'type-chip' }, TYPE_LABEL[k.type]), el('span', {}, 'Ziel: ', el('strong', {}, targetLabel(k)), k.deadline ? ' bis ' + de(k.deadline) : '')),
-      askBool && el('div', { class: 'field' }, el('label', {}, 'Erreicht?'), el('div', { class: 'toggle' }, yesB, noB)),
-      askNum && field('Erreichte Anzahl', num, 'Liegt der Wert bei oder über dem Ziel, gilt die Kennzahl als erreicht.', `(${k.unit || 'Wert'})`),
-      dateField,
-      field('Nachweis / Kommentar', note),
-      od.length ? el('div', { class: 'warn-box' }, `Hinweis: ${od.length} Voraussetzung(en) noch offen (${od.map((d) => d.title).join(', ')}). Die Erreichung kann trotzdem eingetragen werden.`) : null],
-    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/kpis/${k.id}/achieve`, { achieved: form.yes, value: askNum ? form.value : undefined, achievedAt: form.date, note: note.value }), 'Erreichung gespeichert').then(closeOn(close)) }, 'Erreichung speichern')]);
-}
-
+// Anlegen und Bearbeiten in einem Dialog: aktueller Stand (Ist-Wert bzw. Ja/Nein, Kommentar), Stammdaten, Historie
 function modalKpiForm(k, ressortId) {
   const isNew = !k;
   const rid = isNew ? ressortId : k.ressortId;
@@ -551,20 +517,49 @@ function modalKpiForm(k, ressortId) {
       : [el('span', { class: 'muted small' }, 'Keine weiteren Kennzahlen in diesem Ressort.')]));
   };
   ownerSel.addEventListener('change', syncDeps); syncDeps();
+
+  // Aktueller Stand
+  const form = { yes: !!k?.achieved };
+  const yesB = el('button', { type: 'button', onClick: () => { form.yes = true; sync(); } }, '✓ Ja, erreicht');
+  const noB = el('button', { type: 'button', onClick: () => { form.yes = false; sync(); } }, '✕ Nein, offen');
+  const boolField = el('div', { class: 'field' }, el('label', {}, 'Erreicht?'), el('div', { class: 'toggle' }, yesB, noB));
+  const achievedAt = inp('k-achieved-at', { type: 'date', value: k?.achievedAt || todayIso() });
+  const dateField = field('Erreicht am', achievedAt);
+  const note = el('textarea', { id: 'k-note', rows: 2, placeholder: 'Woher kommt der Wert? Link zum Beleg, Kontext …' });
+  const depsWarn = el('div', { class: 'warn-box' });
   const numFields = el('div', { class: 'two' }, field('Zielwert', target, null, '(Pflicht)'), field('Einheit', unit));
-  const curField = field(isNew ? 'Aktueller Ist-Wert' : 'Ist-Wert', current, isNew ? null : 'Zum Nachtragen bitte „Wert eingeben“ nutzen – hier nicht änderbar.');
-  if (!isNew) current.disabled = true;
-  const syncType = () => { const n = type.value === 'number'; numFields.style.display = n ? '' : 'none'; curField.style.display = n ? '' : 'none'; };
-  type.addEventListener('change', syncType); syncType();
+  const curField = field(isNew ? 'Aktueller Ist-Wert' : 'Ist-Wert', current);
+  function sync() {
+    const n = type.value === 'number';
+    numFields.hidden = !n; curField.hidden = !n; boolField.hidden = n || isNew;
+    yesB.classList.toggle('on', form.yes); noB.classList.toggle('on', !form.yes);
+    const reached = n ? Number(target.value) > 0 && Number(current.value) >= Number(target.value) : form.yes;
+    dateField.hidden = isNew || !reached;
+    const od = k ? openDeps(k) : [];
+    depsWarn.hidden = isNew || !reached || k.achieved || !od.length;
+    depsWarn.textContent = `Hinweis: ${od.length} Voraussetzung(en) noch offen (${od.map((d) => d.title).join(', ')}). Die Erreichung kann trotzdem eingetragen werden.`;
+  }
+  [type, target, current].forEach((x) => x.addEventListener('input', sync));
+  sync();
   if (!isNew) type.disabled = true;
-  const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, ressortId: ownerSel.value, description: desc.value, deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value) });
+
+  const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, ressortId: ownerSel.value, description: desc.value, deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value),
+    ...(isNew ? {} : { achieved: form.yes, achievedAt: dateField.hidden ? undefined : achievedAt.value, note: note.value }) });
+  const masterData = [field('Bezeichnung', title),
+    el('div', { class: 'two' }, field('Typ', type, isNew ? null : 'Der Typ ist nach dem Anlegen fest.'), field('Ressort', ownerSel, isAdmin() ? null : 'Zuordnung ändert nur ein Admin.')),
+    numFields, isNew ? curField : null,
+    field('Frist / Zieldatum', deadline),
+    field('Beschreibung', desc),
+    el('div', { class: 'field' }, el('label', {}, 'Abhängig von ', el('span', {}, '(Voraussetzungen aus demselben Ressort)')), depsBox)];
   openModal(isNew ? 'Neue Kennzahl' : k.title, isNew ? ressort(rid).name + ' · anlegen' : owner(k) + ' · bearbeiten',
-    [field('Bezeichnung', title),
-      el('div', { class: 'two' }, field('Typ', type, isNew ? null : 'Der Typ ist nach dem Anlegen fest.'), field('Ressort', ownerSel, isAdmin() ? null : 'Zuordnung ändert nur ein Admin.')),
-      numFields, curField,
-      field('Frist / Zieldatum', deadline),
-      field('Beschreibung', desc),
-      el('div', { class: 'field' }, el('label', {}, 'Abhängig von ', el('span', {}, '(Voraussetzungen aus demselben Ressort)')), depsBox)],
+    isNew ? masterData : [
+      el('div', { class: 'sec-label' }, 'Aktueller Stand'),
+      el('div', { class: 'two' }, curField, boolField, infoBox('Ziel', targetLabel(k))),
+      dateField, depsWarn,
+      field('Kommentar', note, 'Erscheint in der Historie, auch ohne andere Änderung.'),
+      el('div', { class: 'sec-label', style: 'margin-top:8px' }, 'Stammdaten'),
+      ...masterData,
+      el('details', { class: 'hist-box' }, el('summary', {}, `Historie (${k.history.length})`), ...historyItems(k))],
     (close) => [
       !isNew && isAdmin() && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ wirklich löschen? Die Historie geht verloren.`) && act(() => api('DELETE', `/api/kpis/${k.id}`), 'Kennzahl gelöscht').then(closeOn(close)) }, 'Löschen'),
       cancelBtn(close),
