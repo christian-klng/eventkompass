@@ -2,6 +2,9 @@
 
 Stand: 01.11.2026 · Ausgangslage: v0.1 (Express + JSON-Datei, kein Login, läuft lokal in OrbStack auf :8090)
 
+**Umsetzungsstand:** Phasen 0–4 und die API-Tests sind umgesetzt und lokal getestet (v0.2). Offen: GitHub-Repo anlegen
+und pushen (Phase 0.1), Coolify (Phase 5), Backups, Datenschutz (Datenschutzerklärung, Impressum, Google Fonts lokal).
+
 **Reihenfolge ist wichtig:** Erst Login und Rechte, dann online gehen. v0.1 hat keinen Zugriffsschutz und mit
 `POST /api/reset` kann jeder alle Daten löschen – so darf die App nicht öffentlich erreichbar sein.
 
@@ -17,6 +20,7 @@ Stand: 01.11.2026 · Ausgangslage: v0.1 (Express + JSON-Datei, kein Login, läuf
 | E2 | Freitext-Ressort | Mit Freigabe: Der Admin legt das Ressort beim Freischalten an oder ordnet einem bestehenden zu. Bei automatischer Freischaltung: Das Ressort wird sofort angelegt und als „neu, ungeprüft“ markiert; der Admin kann es später umbenennen oder zusammenführen. |
 | E4 | Event-Ebene | Wird zum **Führungsressort**: ein echtes Ressort je Event, mit eigenem Team. Seine Mitglieder pflegen die Event-Kennzahlen. Es gelten dieselben Regeln wie für jedes andere Ressort (Rechte, Abhängigkeiten). |
 | E7 | Coolify | Instanz vorhanden. Zunächst die **von Coolify erzeugte HTTP-Domain** (`http://….sslip.io`), HTTPS-Domain später. |
+| E10 | Rechte des Führungsressorts | Keine Sonderrechte – die Event-Kennzahlen sind ihm zugeordnet, sonst wie jedes Ressort. |
 
 **Noch offen – meine Empfehlung gilt, wenn du nichts anderes sagst**
 
@@ -27,7 +31,6 @@ Stand: 01.11.2026 · Ausgangslage: v0.1 (Express + JSON-Datei, kein Login, läuf
 | E6 | Speicher | **JSON-Datei bleibt für v0.2.** SQLite, sobald Nutzerzahl oder Datenmenge wächst. |
 | E8 | Projektname für GitHub-Repo | „Eventkompass“ als Produktname, Repo `eventkompass` |
 | E9 | Sehen Nutzer alle Events? | Ja, alle. Event-Auswahl oben bleibt, Standard = eigenes Event. |
-| E10 | Hat das Führungsressort mehr Rechte als andere Ressorts (z. B. fremde Kennzahlen bearbeiten)? | **Nein** – nur seine eigenen Kennzahlen. Übergreifend ändern darf nur der Admin. |
 
 ---
 

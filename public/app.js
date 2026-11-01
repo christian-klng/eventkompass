@@ -14,30 +14,39 @@ const el = (tag, attrs = {}, ...children) => {
   return n;
 };
 
-const state = { data: { events: [], ressorts: [], kpis: [] }, eventId: null, view: 'overview', ressortId: null, sel: null };
+const state = { me: null, data: { events: [], ressorts: [], kpis: [] }, users: [], eventId: null, view: 'overview', ressortId: null, adminTab: 'users', userFilter: 'all' };
 const TYPE_LABEL = { number: 'Anzahl', bool: 'Ja / Nein', date: 'Meilenstein', combo: 'Anzahl + Datum' };
 const PALETTE = ['#2563EB', '#7C3AED', '#DB2777', '#0F766E', '#B45309', '#0891B2', '#65A30D', '#9333EA', '#DC2626', '#4B5563'];
+const MIN_PASSWORD = 10;
 
 // ---------- API ----------
 async function api(method, url, body) {
   const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
   const json = await res.json().catch(() => ({}));
+  // Session abgelaufen oder Einmal-Passwort: zurück zur Anmeldung, ohne zusätzliche Fehlermeldung.
+  if (state.me && (res.status === 401 || json.code === 'PASSWORD_CHANGE_REQUIRED')) {
+    if (res.status === 401) state.me = null;
+    showAuth(res.status === 401 ? 'login' : 'password');
+    throw Object.assign(new Error(json.error), { silent: true });
+  }
   if (!res.ok) throw new Error(json.error || res.statusText);
   return json;
 }
 async function reload() {
-  state.data = await api('GET', '/api/state');
-  if (!state.data.events.find((e) => e.id === state.eventId)) state.eventId = state.data.events[0]?.id || null;
+  const [data, users] = await Promise.all([api('GET', '/api/state'), isAdmin() ? api('GET', '/api/admin/users') : null]);
+  state.data = data;
+  state.users = users || [];
+  if (!state.data.events.find((e) => e.id === state.eventId)) state.eventId = state.data.events.find((e) => e.id === state.me.eventId)?.id || state.data.events[0]?.id || null;
   render();
 }
-const who = () => $('#who').value.trim() || 'Unbekannt';
 function toast(msg) {
   const t = $('#toast');
   t.textContent = msg; t.hidden = false;
   clearTimeout(t._h); t._h = setTimeout(() => (t.hidden = true), 2200);
 }
+// Führt eine Änderung aus, lädt neu und meldet Erfolg (true) oder Fehler (false).
 async function act(fn, msg) {
-  try { await fn(); await reload(); if (msg) toast(msg); } catch (e) { alert('Fehler: ' + e.message); }
+  try { await fn(); await reload(); if (msg) toast(msg); return true; } catch (e) { if (!e.silent) alert('Fehler: ' + e.message); return false; }
 }
 
 // ---------- Helfer ----------
@@ -48,15 +57,22 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 const isNum = (k) => k.type === 'number' || k.type === 'combo';
 const byId = (id) => state.data.kpis.find((k) => k.id === id);
 const ressort = (id) => state.data.ressorts.find((r) => r.id === id);
-const curEvent = () => state.data.events.find((e) => e.id === state.eventId);
-const evRessorts = () => state.data.ressorts.filter((r) => r.eventId === state.eventId);
+const eventById = (id) => state.data.events.find((e) => e.id === id);
+const curEvent = () => eventById(state.eventId);
+// Führungsressort immer zuerst
+const ressortsOf = (eventId) => state.data.ressorts.filter((r) => r.eventId === eventId).sort((a, b) => b.isLead - a.isLead);
+const evRessorts = () => ressortsOf(state.eventId);
+const leadRessort = () => evRessorts().find((r) => r.isLead);
 const evKpis = () => state.data.kpis.filter((k) => k.eventId === state.eventId);
-const owner = (k) => (k.ressortId ? ressort(k.ressortId)?.name || 'Ressort' : 'Event');
-const ownerColor = (k) => (k.ressortId ? ressort(k.ressortId)?.color || '#6B7280' : '#111827');
+const owner = (k) => ressort(k.ressortId)?.name || 'Ressort';
 const pct = (k) => (k.achieved ? 100 : isNum(k) && k.target > 0 ? Math.min(100, Math.round((k.current / k.target) * 100)) : 0);
 const valueLabel = (k) => (isNum(k) ? fmt(k.current) + (k.unit ? ' ' + k.unit : '') : k.achieved ? 'Erreicht' : 'Offen');
 const targetLabel = (k) => (isNum(k) ? fmt(k.target) + (k.unit ? ' ' + k.unit : '') : 'bis ' + de(k.deadline));
 const openDeps = (k) => k.deps.map(byId).filter((d) => d && !d.achieved);
+// Rechte – maßgeblich ist der Server, hier wird nur ein- und ausgeblendet.
+const isAdmin = () => state.me?.role === 'admin';
+const canEditRessort = (rid) => isAdmin() || (!!state.me?.ressortId && state.me.ressortId === rid);
+const canEditKpi = (k) => canEditRessort(k.ressortId);
 function status(k) {
   if (k.achieved) return { key: 'done', label: 'Erreicht', color: 'var(--ok)' };
   if (k.deadline && k.deadline < todayIso()) return { key: 'late', label: 'Überfällig', color: 'var(--crit)' };
@@ -69,8 +85,121 @@ function status(k) {
   }
   return { key: 'open', label: 'Offen', color: '#9CA3AF' };
 }
+// Wie Element.append, überspringt aber null/false (bedingte Kinder)
+const append = (parent, ...children) => parent.append(...children.flat().filter((c) => c !== null && c !== undefined && c !== false));
 const dot = (color, sm) => el('span', { class: 'dot' + (sm ? ' sm' : ''), style: 'background:' + color });
 const pill = (s) => el('span', { class: 'pill ' + s.key }, s.label);
+
+// ---------- Anmeldung & Registrierung ----------
+function startApp(user) {
+  state.me = user;
+  if (user.mustChangePassword) return showAuth('password');
+  $('#auth-root').replaceChildren();
+  $('#auth-root').hidden = true;
+  $('#app').hidden = false;
+  return reload();
+}
+
+function showAuth(mode, notice) {
+  $('#app').hidden = true;
+  $('#modal-root').replaceChildren();
+  const root = $('#auth-root');
+  root.hidden = false;
+  const card = el('div', { class: 'auth-card' }, el('div', { class: 'brand' }, el('span', { class: 'brand-mark', 'aria-hidden': 'true' }), 'Eventkompass'));
+  root.replaceChildren(el('div', { class: 'auth-wrap' }, card));
+  ({ login: authLogin, register: authRegister, pending: authPending, password: authPassword })[mode](card, notice);
+  setTimeout(() => $('input,select', card)?.focus(), 0);
+}
+
+const errorBox = () => el('div', { class: 'error-box', role: 'alert', hidden: true });
+const showError = (box, msg) => { box.textContent = msg; box.hidden = !msg; };
+// Formular mit Absenden per Enter; onSubmit wirft bei Fehlern, die Meldung erscheint im Formular.
+function authForm(fields, label, onSubmit) {
+  const err = errorBox();
+  const submit = el('button', { class: 'btn wide', type: 'submit' }, label);
+  const form = el('form', { class: 'auth-form', novalidate: true }, ...fields, err, submit);
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    showError(err, '');
+    submit.disabled = true;
+    try { await onSubmit(); } catch (ex) { showError(err, ex.message); } finally { submit.disabled = false; }
+  });
+  return form;
+}
+
+function authLogin(card, notice) {
+  const email = inp('l-email', { type: 'email', autocomplete: 'username' });
+  const pw = inp('l-pw', { type: 'password', autocomplete: 'current-password' });
+  append(card, 
+    el('h1', {}, 'Anmelden'),
+    notice ? el('div', { class: 'info-box small' }, notice) : null,
+    authForm([field('E-Mail', email), field('Passwort', pw)], 'Anmelden', async () => {
+      const { user } = await api('POST', '/api/auth/login', { email: email.value, password: pw.value });
+      await startApp(user);
+    }),
+    el('div', { class: 'auth-switch muted small' }, 'Noch kein Konto? ', el('button', { class: 'link-btn', onClick: () => showAuth('register') }, 'Registrieren')));
+}
+
+async function authRegister(card) {
+  append(card, el('h1', {}, 'Registrieren'), el('div', { class: 'muted small' }, 'Wähle dein Event und dein Ressort. Die Zuordnung kann danach nur ein Admin ändern.'));
+  let opts;
+  try { opts = await api('GET', '/api/public/registration-options'); } catch (e) { card.append(el('div', { class: 'error-box' }, e.message)); return; }
+  const name = inp('r-name', { autocomplete: 'name', placeholder: 'Vor- und Nachname' });
+  const email = inp('r-email', { type: 'email', autocomplete: 'username' });
+  const pw = inp('r-pw', { type: 'password', autocomplete: 'new-password' });
+  const evSel = el('select', { id: 'r-event' }, el('option', { value: '' }, 'Bitte wählen …'), ...opts.events.map((e) => el('option', { value: e.id }, e.name + (e.startDate ? ' · ' + de(e.startDate) : ''))));
+  const rSel = el('select', { id: 'r-ressort', disabled: true });
+  const newName = inp('r-new', { placeholder: 'Name des Ressorts', maxlength: 60 });
+  const newField = field('Neues Ressort', newName, 'Ein Admin prüft den Namen und legt das Ressort an bzw. ordnet dich zu.');
+  const syncRessorts = () => {
+    const rs = opts.ressorts.filter((r) => r.eventId === evSel.value).sort((a, b) => b.isLead - a.isLead);
+    rSel.replaceChildren(el('option', { value: '' }, 'Bitte wählen …'), ...rs.map((r) => el('option', { value: r.id }, r.name + (r.isLead ? ' (Event-Kennzahlen)' : ''))), el('option', { value: '__new' }, 'Mein Ressort fehlt …'));
+    rSel.disabled = !evSel.value;
+    syncNew();
+  };
+  const syncNew = () => (newField.hidden = rSel.value !== '__new');
+  evSel.addEventListener('change', syncRessorts);
+  rSel.addEventListener('change', syncNew);
+  if (opts.events.length === 1) evSel.value = opts.events[0].id;
+  syncRessorts();
+  append(card, 
+    authForm([field('Name', name), field('E-Mail', email), field('Passwort', pw, `Mindestens ${MIN_PASSWORD} Zeichen.`), field('Event', evSel), field('Ressort', rSel), newField], 'Konto anlegen', async () => {
+      if (!evSel.value) throw new Error('Bitte ein Event auswählen.');
+      if (!rSel.value) throw new Error('Bitte ein Ressort auswählen.');
+      if (pw.value.length < MIN_PASSWORD) throw new Error(`Das Passwort muss mindestens ${MIN_PASSWORD} Zeichen haben.`);
+      const isNew = rSel.value === '__new';
+      const res = await api('POST', '/api/auth/register', { name: name.value, email: email.value, password: pw.value, eventId: evSel.value, ressortId: isNew ? null : rSel.value, newRessortName: isNew ? newName.value : '' });
+      if (res.status === 'active') await startApp(res.user);
+      else showAuth('pending');
+    }),
+    el('div', { class: 'auth-switch muted small' }, 'Schon registriert? ', el('button', { class: 'link-btn', onClick: () => showAuth('login') }, 'Anmelden')));
+}
+
+function authPending(card) {
+  append(card, el('h1', {}, 'Fast geschafft'),
+    el('p', {}, 'Dein Konto ist angelegt und wartet auf die Freigabe durch einen Admin. Danach kannst du dich anmelden.'),
+    el('button', { class: 'btn wide', onClick: () => showAuth('login') }, 'Zur Anmeldung'));
+}
+
+function authPassword(card) {
+  const cur = inp('p-cur', { type: 'password', autocomplete: 'current-password' });
+  const pw1 = inp('p-new', { type: 'password', autocomplete: 'new-password' });
+  const pw2 = inp('p-new2', { type: 'password', autocomplete: 'new-password' });
+  append(card, el('h1', {}, 'Neues Passwort setzen'),
+    el('div', { class: 'muted small' }, 'Du hast dich mit einem Einmal-Passwort angemeldet. Bitte lege jetzt dein eigenes Passwort fest.'),
+    authForm([field('Aktuelles Passwort', cur), field('Neues Passwort', pw1, `Mindestens ${MIN_PASSWORD} Zeichen.`), field('Neues Passwort wiederholen', pw2)], 'Passwort speichern', async () => {
+      if (pw1.value !== pw2.value) throw new Error('Die beiden neuen Passwörter stimmen nicht überein.');
+      const { user } = await api('POST', '/api/auth/password', { currentPassword: cur.value, newPassword: pw1.value });
+      await startApp(user);
+    }),
+    el('div', { class: 'auth-switch muted small' }, el('button', { class: 'link-btn', onClick: logout }, 'Abmelden')));
+}
+
+async function logout() {
+  await fetch('/api/auth/logout', { method: 'POST', headers: { 'Content-Type': 'application/json' } }).catch(() => {});
+  Object.assign(state, { me: null, users: [], view: 'overview', ressortId: null, adminTab: 'users', userFilter: 'all' });
+  showAuth('login', 'Du bist abgemeldet.');
+}
 
 // ---------- Rendering ----------
 function render() {
@@ -78,26 +207,37 @@ function render() {
   renderSidebar();
   const main = $('#main');
   main.replaceChildren();
-  if (!curEvent()) { main.append(el('div', { class: 'card empty' }, 'Noch kein Event. Lege oben rechts mit „+ Event“ eines an.')); return; }
-  if (state.view === 'overview') renderOverview(main);
-  else if (state.view === 'ressort') renderRessort(main);
-  else renderGraph(main);
+  if (state.view === 'admin') return renderAdmin(main);
+  if (!curEvent()) { main.append(el('div', { class: 'card empty' }, isAdmin() ? 'Noch kein Event. Lege unter „Verwaltung → Events“ eines an.' : 'Noch kein Event vorhanden.')); return; }
+  if (state.view === 'ressort') renderRessort(main);
+  else renderOverview(main);
 }
 
 function renderTopbar() {
   const sel = $('#event-select');
   sel.replaceChildren(...state.data.events.map((e) => el('option', { value: e.id, selected: e.id === state.eventId }, e.name + (e.startDate ? ' · ' + de(e.startDate) : ''))));
-  $('#btn-edit-event').disabled = !curEvent();
+  const me = state.me;
+  const where = isAdmin() ? 'Admin' : [ressort(me.ressortId)?.name, eventById(me.eventId)?.name].filter(Boolean).join(' · ') || 'Kein Ressort zugeordnet';
+  $('#user-box').replaceChildren(
+    el('div', { class: 'user-info' }, el('div', { class: 'strong' }, me.name), el('div', { class: 'muted small' }, where)),
+    el('button', { class: 'btn ghost small-btn', onClick: modalPassword }, 'Passwort ändern'),
+    el('button', { class: 'btn ghost small-btn', onClick: logout }, 'Abmelden'));
 }
 
 function renderSidebar() {
   document.querySelectorAll('.nav[data-view]').forEach((b) => b.classList.toggle('active', state.view === b.dataset.view));
+  $('#nav-admin').hidden = !isAdmin();
+  const pending = state.data.admin?.pendingUsers || 0;
+  $('#pending-badge').hidden = !pending;
+  $('#pending-badge').textContent = pending;
+  $('#btn-new-ressort').hidden = !isAdmin();
   const rs = evRessorts();
   $('#ressort-count').textContent = rs.length;
   $('#nav-ressorts').replaceChildren(...rs.map((r) => {
     const ks = evKpis().filter((k) => k.ressortId === r.id);
     return el('button', { class: 'nav' + (state.view === 'ressort' && state.ressortId === r.id ? ' active' : ''), onClick: () => go('ressort', r.id) },
-      dot(r.color), el('span', { class: 'grow' }, r.name), el('span', { class: 'muted small num' }, ks.filter((k) => k.achieved).length + '/' + ks.length));
+      dot(r.color), el('span', { class: 'grow' }, r.name), r.id === state.me.ressortId ? el('span', { class: 'mine', title: 'Dein Ressort' }, 'deins') : null,
+      el('span', { class: 'muted small num' }, ks.filter((k) => k.achieved).length + '/' + ks.length));
   }));
   const ks = evKpis(); const ev = curEvent();
   const days = ev?.startDate ? Math.ceil((new Date(ev.startDate) - new Date()) / 86400000) : null;
@@ -114,7 +254,7 @@ function kpiTable(kpis, opts = {}) {
     el('thead', {}, el('tr', {}, ...['Kennzahl', 'Typ', 'Ziel', 'Ist', 'Fortschritt', 'Status', 'Frist / erreicht', 'Abhängig von', ''].map((h) => el('th', {}, h)))),
     el('tbody'));
   const tb = $('tbody', table);
-  if (!kpis.length) tb.append(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, opts.empty || 'Noch keine Kennzahlen – mit „+ Kennzahl“ anlegen.')));
+  if (!kpis.length) tb.append(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, opts.empty || 'Noch keine Kennzahlen.')));
   for (const k of kpis) {
     const row = $('#tpl-kpi-row').content.firstElementChild.cloneNode(true);
     const s = status(k);
@@ -128,27 +268,34 @@ function kpiTable(kpis, opts = {}) {
     $('.kpi-status', row).replaceWith(pill(s));
     $('.kpi-dates', row).replaceChildren(el('div', {}, de(k.deadline)), el('div', { class: 'small', style: 'color:' + (k.achieved ? 'var(--ok-ink)' : 'var(--muted)') }, k.achieved ? 'erreicht am ' + de(k.achievedAt) : 'noch nicht erreicht'));
     const deps = k.deps.map(byId).filter(Boolean);
-    $('.kpi-deps', row).replaceChildren(...(deps.length ? deps.map((d) => el('span', { class: 'chip ' + (d.achieved ? 'done' : 'open'), title: d.title + ' (' + owner(d) + ')' }, d.title.length > 24 ? d.title.slice(0, 23) + '…' : d.title)) : [el('span', { class: 'muted small' }, '–')]));
-    $('.act-value', row).addEventListener('click', () => modalValue(k));
-    if (!isNum(k)) $('.act-value', row).disabled = true;
+    $('.kpi-deps', row).replaceChildren(...(deps.length ? deps.map((d) => el('span', { class: 'chip ' + (d.achieved ? 'done' : 'open'), title: d.title }, d.title.length > 24 ? d.title.slice(0, 23) + '…' : d.title)) : [el('span', { class: 'muted small' }, '–')]));
     $('.act-history', row).addEventListener('click', () => modalHistory(k));
-    $('.act-achieve', row).addEventListener('click', () => modalAchieve(k));
-    $('.act-edit', row).addEventListener('click', () => modalKpiForm(k));
+    if (canEditKpi(k)) {
+      $('.act-value', row).addEventListener('click', () => modalValue(k));
+      if (!isNum(k)) $('.act-value', row).disabled = true;
+      $('.act-achieve', row).addEventListener('click', () => modalAchieve(k));
+      $('.act-edit', row).addEventListener('click', () => modalKpiForm(k));
+    } else {
+      // Fremde Kennzahlen: nur lesen (Historie bleibt für alle sichtbar)
+      ['.act-value', '.act-achieve', '.act-edit'].forEach((c) => $(c, row).remove());
+    }
     tb.append(row);
   }
   return el('div', { class: 'table-wrap' }, table);
 }
 
 function renderOverview(main) {
-  const ev = curEvent(); const ks = evKpis(); const rs = evRessorts();
+  const ev = curEvent(); const ks = evKpis(); const lead = leadRessort();
+  const rs = evRessorts().filter((r) => !r.isLead);
   const done = ks.filter((k) => k.achieved).length;
   const stats = ks.map(status);
   const total = ks.length ? Math.round(ks.reduce((a, k) => a + pct(k), 0) / ks.length) : 0;
   const circ = 2 * Math.PI * 28;
+  const leadKs = lead ? ks.filter((k) => k.ressortId === lead.id) : [];
   main.append(
     el('div', { class: 'head-row' },
       el('div', {}, el('div', { class: 'muted small strong' }, 'Event · ' + ev.name), el('h1', {}, 'Zielerreichung gesamt')),
-      el('div', { style: 'display:flex;gap:8px' }, el('button', { class: 'btn', onClick: () => modalKpiForm(null, null) }, '+ Event-Kennzahl'))),
+      lead && canEditRessort(lead.id) ? el('div', { style: 'display:flex;gap:8px' }, el('button', { class: 'btn', onClick: () => modalKpiForm(null, lead.id) }, '+ Event-Kennzahl')) : null),
     el('div', { class: 'grid grid-5' },
       el('div', { class: 'card ring-card' },
         svgEl(`<svg width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="Gesamtfortschritt ${total} Prozent"><circle cx="36" cy="36" r="28" fill="none" stroke="#E5E7EB" stroke-width="8"/><circle cx="36" cy="36" r="28" fill="none" stroke="#4F46E5" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(total / 100) * circ} ${circ}" transform="rotate(-90 36 36)"/><text x="36" y="41" text-anchor="middle" font-size="15" font-weight="700" fill="#111827" font-family="Inter,sans-serif">${total}%</text></svg>`),
@@ -158,10 +305,10 @@ function renderOverview(main) {
       stat('Gefährdet / überfällig', stats.filter((s) => ['risk', 'crit', 'late'].includes(s.key)).length, 'braucht Aufmerksamkeit', 'var(--warn)'),
       stat('Blockiert', ks.filter((k) => !k.achieved && openDeps(k).length).length, 'warten auf Voraussetzungen', 'var(--crit)')),
     el('section', { class: 'card' },
-      el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, 'Event-Kennzahlen'), el('div', { class: 'muted small' }, 'Übergeordnete Ziele – speisen sich aus den Ressort-Kennzahlen'))),
-      kpiTable(ks.filter((k) => !k.ressortId), { empty: 'Noch keine Event-Kennzahlen.' })),
+      el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, 'Event-Kennzahlen'), el('div', { class: 'muted small' }, lead ? `Übergeordnete Ziele – gepflegt vom Ressort „${lead.name}“` : 'Übergeordnete Ziele'))),
+      kpiTable(leadKs, { empty: 'Noch keine Event-Kennzahlen.' })),
     el('section', {},
-      el('div', { class: 'head-row', style: 'margin-bottom:12px' }, el('h2', {}, 'Ressorts'), el('button', { class: 'btn ghost small-btn', onClick: () => modalRessortForm(null) }, '+ Ressort')),
+      el('div', { class: 'head-row', style: 'margin-bottom:12px' }, el('h2', {}, 'Ressorts'), isAdmin() ? el('button', { class: 'btn ghost small-btn', onClick: () => modalRessortForm(null) }, '+ Ressort') : null),
       el('div', { class: 'grid grid-3' }, ...rs.map(ressortCard), !rs.length && el('div', { class: 'card empty' }, 'Noch keine Ressorts.')))
   );
 }
@@ -194,89 +341,112 @@ function renderRessort(main) {
   const ks = evKpis().filter((k) => k.ressortId === r.id);
   const done = ks.filter((k) => k.achieved).length;
   const p = ks.length ? Math.round(ks.reduce((a, k) => a + pct(k), 0) / ks.length) : 0;
+  const editable = canEditRessort(r.id);
+  const hint = r.isLead ? 'Führungsressort – pflegt die Event-Kennzahlen' : 'Teams tragen ihre Kennzahlen hier selbst ein';
   main.append(
     el('div', { class: 'head-row' },
       el('div', {},
         el('div', { class: 'muted small strong' }, el('button', { class: 'link-btn', onClick: () => go('overview') }, 'Übersicht'), ' / Ressort'),
         el('h1', { style: 'display:flex;align-items:center;gap:10px' }, dot(r.color), r.name),
-        el('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, 'Leitung ' + (r.lead || '–') + ' · Teams tragen ihre Kennzahlen hier selbst ein')),
+        el('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, 'Leitung ' + (r.lead || '–') + ' · ' + hint + (editable ? '' : ' · nur Lesen'))),
       el('div', { style: 'display:flex;gap:8px' },
-        el('button', { class: 'btn ghost', onClick: () => modalRessortForm(r) }, 'Ressort bearbeiten'),
-        el('button', { class: 'btn ghost', onClick: () => go('graph') }, 'Abhängigkeiten'),
-        el('button', { class: 'btn', onClick: () => modalKpiForm(null, r.id) }, '+ Kennzahl'))),
+        isAdmin() ? el('button', { class: 'btn ghost', onClick: () => modalRessortForm(r) }, 'Ressort bearbeiten') : null,
+        editable ? el('button', { class: 'btn', onClick: () => modalKpiForm(null, r.id) }, '+ Kennzahl') : null)),
     el('div', { class: 'grid grid-4' },
       miniStat('Kennzahlen', ks.length), miniStat('Erreicht', `${done}/${ks.length}`), miniStat('Fortschritt', p + '%'),
       miniStat('Gefährdet', ks.filter((k) => ['risk', 'crit', 'late'].includes(status(k).key)).length)),
-    el('section', { class: 'card' }, kpiTable(ks))
+    el('section', { class: 'card' }, kpiTable(ks, { empty: editable ? 'Noch keine Kennzahlen – mit „+ Kennzahl“ anlegen.' : 'Noch keine Kennzahlen.' }))
   );
 }
 const miniStat = (l, v) => el('div', { class: 'card stat', style: 'padding:16px 18px' }, el('div', { class: 'muted small strong' }, l), el('div', { class: 'num', style: 'font-size:24px;font-weight:700' }, v));
 
-// ---------- Abhängigkeits-Graph ----------
-function renderGraph(main) {
-  const ks = evKpis(); const rs = evRessorts();
-  const colW = 236, nodeW = 196, nodeH = 84, rowH = 108, top = 64, left = 24;
-  const cols = [{ id: null, name: 'Event', color: '#111827' }, ...rs];
-  const pos = {}; let maxRows = 1;
-  cols.forEach((c, ci) => {
-    const list = ks.filter((k) => (k.ressortId || null) === c.id);
-    maxRows = Math.max(maxRows, list.length);
-    list.forEach((k, ri) => (pos[k.id] = { x: left + ci * colW, y: top + ri * rowH }));
-  });
-  const W = left * 2 + cols.length * colW - (colW - nodeW), H = top + maxRows * rowH + 8;
-  const sel = state.sel ? byId(state.sel) : null;
-  const related = new Set();
-  if (sel) { related.add(sel.id); sel.deps.forEach((d) => related.add(d)); ks.forEach((k) => k.deps.includes(sel.id) && related.add(k.id)); }
-
-  let paths = '';
-  for (const t of ks) for (const sid of t.deps) {
-    const s = byId(sid); if (!s || !pos[s.id] || !pos[t.id]) continue;
-    const ps = pos[s.id], pt = pos[t.id], cy = nodeH / 2; let d;
-    if (ps.x === pt.x) { const x = ps.x + nodeW; d = `M${x} ${ps.y + cy} C${x + 40} ${ps.y + cy}, ${x + 40} ${pt.y + cy}, ${x} ${pt.y + cy}`; }
-    else if (ps.x > pt.x) { const sx = ps.x, tx = pt.x + nodeW, mid = (sx + tx) / 2; d = `M${sx} ${ps.y + cy} C${mid} ${ps.y + cy}, ${mid} ${pt.y + cy}, ${tx} ${pt.y + cy}`; }
-    else { const sx = ps.x + nodeW, tx = pt.x, mid = (sx + tx) / 2; d = `M${sx} ${ps.y + cy} C${mid} ${ps.y + cy}, ${mid} ${pt.y + cy}, ${tx} ${pt.y + cy}`; }
-    const dim = sel && !(s.id === sel.id || t.id === sel.id);
-    const color = dim ? '#D1D5DB' : s.achieved ? '#15803D' : '#B45309';
-    const marker = dim ? 'arrDim' : s.achieved ? 'arrOk' : 'arrOpen';
-    paths += `<path d="${d}" fill="none" stroke="${color}" stroke-width="${dim ? 1.5 : 2}" ${s.achieved ? '' : 'stroke-dasharray="6 5"'} marker-end="url(#${marker})"/>`;
-  }
-  const mk = (id, c) => `<marker id="${id}" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L8 4L0 8z" fill="${c}"/></marker>`;
-  const svg = svgEl(`<svg class="graph-svg" width="${W}" height="${H}" aria-hidden="true"><defs>${mk('arrOk', '#15803D')}${mk('arrOpen', '#B45309')}${mk('arrDim', '#D1D5DB')}</defs>${paths}</svg>`);
-
-  const inner = el('div', { class: 'graph-inner', style: `width:${W}px;height:${H}px` },
-    ...cols.map((c, ci) => el('div', { class: 'graph-col', style: `left:${left + ci * colW}px;width:${nodeW}px;border-color:${c.color}` }, dot(c.color, true), c.name)),
-    svg,
-    ...ks.map((k) => {
-      const p = pos[k.id]; const s = status(k);
-      return el('button', { class: 'node' + (sel?.id === k.id ? ' sel' : '') + (sel && !related.has(k.id) ? ' dim' : ''), style: `left:${p.x}px;top:${p.y}px;width:${nodeW}px;height:${nodeH}px`, onClick: () => { state.sel = state.sel === k.id ? null : k.id; render(); } },
-        el('div', { class: 'meta' }, el('span', {}, TYPE_LABEL[k.type]), dot(s.color, true)),
-        el('div', { class: 't' }, k.title),
-        el('div', { class: 'small num', style: 'color:#4B5563' }, valueLabel(k) + (isNum(k) ? ' von ' + fmt(k.target) : '')));
-    }));
-
-  const side = el('aside', { class: 'card graph-side' });
-  if (!sel) side.append(el('div', { class: 'strong' }, 'Kein Knoten gewählt'), el('div', { class: 'muted', style: 'font-size:13px' }, 'Klicke eine Kennzahl im Graphen, um ihre Voraussetzungen und Auswirkungen zu sehen.'),
-    el('div', { class: 'warn-box' }, el('strong', {}, ks.filter((k) => !k.achieved && openDeps(k).length).length + ' Kennzahlen'), ' warten aktuell auf nicht erfüllte Voraussetzungen.'));
-  else {
-    const rel = (d) => { const s = status(d); return el('div', { class: 'rel' }, dot(s.color, true), el('span', { class: 'grow' }, d.title), el('span', { class: 'muted small' }, s.label)); };
-    const deps = sel.deps.map(byId).filter(Boolean), dependents = ks.filter((k) => k.deps.includes(sel.id));
-    side.append(
-      el('div', { class: 'muted small strong' }, owner(sel)), el('div', { style: 'font-weight:700;font-size:17px;margin-top:-8px' }, sel.title),
-      el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, pill(status(sel)), el('span', { style: 'font-size:13px;color:#4B5563' }, valueLabel(sel) + ' / ' + targetLabel(sel))),
-      el('div', {}, el('div', { class: 'sec-label' }, `Setzt voraus (${deps.length})`), el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, ...(deps.length ? deps.map(rel) : [el('span', { class: 'muted small' }, 'Keine Voraussetzungen')]))),
-      el('div', {}, el('div', { class: 'sec-label' }, `Wirkt auf (${dependents.length})`), el('div', { style: 'display:flex;flex-direction:column;gap:6px' }, ...(dependents.length ? dependents.map(rel) : [el('span', { class: 'muted small' }, 'Keine abhängigen Kennzahlen')]))),
-      el('div', { style: 'display:flex;gap:8px;margin-top:4px' },
-        el('button', { class: 'btn', style: 'flex:1', onClick: () => modalAchieve(sel) }, 'Ist-Erreichung'),
-        el('button', { class: 'btn ghost', style: 'flex:1', onClick: () => modalHistory(sel) }, 'Historie'),
-        el('button', { class: 'btn ghost', style: 'flex:1', onClick: () => modalKpiForm(sel) }, 'Bearbeiten')));
-  }
-
+// ---------- Verwaltung (nur Admin) ----------
+function renderAdmin(main) {
+  if (!isAdmin()) return go('overview');
+  const pending = state.users.filter((u) => u.status === 'pending').length;
+  const tabs = [['users', 'Nutzer'], ['events', 'Events'], ['ressorts', 'Ressorts']];
   main.append(
-    el('div', { class: 'head-row' },
-      el('div', {}, el('div', { class: 'muted small strong' }, 'Event · ' + curEvent().name), el('h1', {}, 'Abhängigkeiten der Kennzahlen'), el('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, 'Pfeile zeigen von der Voraussetzung zur abhängigen Kennzahl. Knoten anklicken für Details; Abhängigkeiten pflegst du über „Bearbeiten“.')),
-      el('div', { class: 'legend' }, el('span', {}, el('i', { style: 'width:22px;height:2px;background:#15803D;display:inline-block' }), 'Voraussetzung erfüllt'), el('span', {}, el('i', { style: 'width:22px;border-top:2px dashed #B45309;display:inline-block' }), 'Noch offen / blockiert'))),
-    el('div', { class: 'graph-wrap' }, el('section', { class: 'card graph-canvas' }, inner), side)
-  );
+    el('div', { class: 'head-row' }, el('div', {}, el('div', { class: 'muted small strong' }, 'Admin'), el('h1', {}, 'Verwaltung'))),
+    el('div', { class: 'tabs', role: 'tablist' }, ...tabs.map(([id, label]) => el('button', { class: 'tab' + (state.adminTab === id ? ' active' : ''), role: 'tab', 'aria-selected': String(state.adminTab === id), onClick: () => { state.adminTab = id; render(); } },
+      label, id === 'users' && pending ? el('span', { class: 'badge' }, pending) : null))));
+  ({ users: adminUsers, events: adminEvents, ressorts: adminRessorts })[state.adminTab](main);
+}
+
+function adminUsers(main) {
+  const until = state.data.admin?.autoApproveUntil;
+  const setAuto = (iso) => act(() => api('PUT', '/api/admin/settings', { autoApproveUntil: iso }), iso ? 'Automatische Freischaltung aktiv' : 'Automatische Freischaltung beendet');
+  const inHours = (h) => setAuto(new Date(Date.now() + h * 3600000).toISOString());
+  const custom = inp('auto-until', { type: 'datetime-local' });
+  main.append(until
+    ? el('section', { class: 'card auto-card on' },
+      el('div', { class: 'grow' }, el('div', { class: 'strong' }, 'Automatische Freischaltung aktiv'), el('div', { class: 'small' }, `Neue Registrierungen sind sofort aktiv – bis ${deTime(until)} Uhr. Neue Ressorts aus dem Freitext werden direkt angelegt und als „ungeprüft“ markiert.`)),
+      el('button', { class: 'btn', onClick: () => setAuto(null) }, 'Jetzt beenden'))
+    : el('section', { class: 'card auto-card' },
+      el('div', { class: 'grow' }, el('div', { class: 'strong' }, 'Neue Registrierungen müssen freigegeben werden'), el('div', { class: 'muted small' }, 'Für eine begrenzte Zeit automatisch freischalten, z. B. während eines Kick-offs:')),
+      el('div', { class: 'auto-actions' },
+        el('button', { class: 'btn ghost small-btn', onClick: () => inHours(1) }, '1 Stunde'),
+        el('button', { class: 'btn ghost small-btn', onClick: () => inHours(24) }, '24 Stunden'),
+        el('button', { class: 'btn ghost small-btn', onClick: () => inHours(24 * 7) }, '7 Tage'),
+        custom,
+        el('button', { class: 'btn small-btn', onClick: () => custom.value ? setAuto(new Date(custom.value).toISOString()) : alert('Bitte Datum und Uhrzeit wählen.') }, 'Bis dann'))));
+
+  const filters = [['all', 'Alle', () => true], ['pending', 'Wartet auf Freigabe', (u) => u.status === 'pending'], ['auto', 'Automatisch freigeschaltet', (u) => u.approvedBy === 'auto'], ['disabled', 'Gesperrt', (u) => u.status === 'disabled']];
+  const [, , match] = filters.find(([id]) => id === state.userFilter) || filters[0];
+  const list = state.users.filter(match).sort((a, b) => (a.status === 'pending' ? -1 : 0) - (b.status === 'pending' ? -1 : 0) || a.name.localeCompare(b.name, 'de'));
+  const STATUS = { pending: { key: 'risk', label: 'Wartet' }, active: { key: 'done', label: 'Aktiv' }, disabled: { key: 'crit', label: 'Gesperrt' } };
+  const table = el('table', { class: 'admin-table' },
+    el('thead', {}, el('tr', {}, ...['Name', 'Rolle', 'Event', 'Ressort', 'Status', 'Registriert', 'Freigabe', 'Letzter Login', ''].map((h) => el('th', {}, h)))),
+    el('tbody', {}, ...(list.length ? list.map((u) => {
+      const r = ressort(u.ressortId);
+      return el('tr', {},
+        el('td', {}, el('div', { class: 'strong' }, u.name), el('div', { class: 'muted small' }, u.email)),
+        el('td', {}, u.role === 'admin' ? 'Admin' : 'Mitglied'),
+        el('td', {}, eventById(u.eventId)?.name || '–'),
+        el('td', {}, r ? el('span', { class: 'with-dot' }, dot(r.color, true), r.name, r.unreviewed ? el('span', { class: 'chip open' }, 'ungeprüft') : null)
+          : u.requestedRessortName ? el('span', { class: 'chip open' }, 'Wunsch: ' + u.requestedRessortName) : el('span', { class: 'muted' }, '–')),
+        el('td', {}, pill(STATUS[u.status]), u.mustChangePassword ? el('div', { class: 'muted small' }, 'Einmal-Passwort') : null),
+        el('td', { class: 'small' }, de(u.createdAt)),
+        el('td', { class: 'small' }, u.approvedBy === 'auto' ? 'automatisch' : u.approvedBy === 'admin' ? 'Admin' : '–', u.approvedAt ? el('div', { class: 'muted' }, de(u.approvedAt)) : null),
+        el('td', { class: 'small' }, u.lastLoginAt ? deTime(u.lastLoginAt) : '–'),
+        el('td', { class: 'actions' }, el('button', { class: 'btn small-btn' + (u.status === 'pending' ? '' : ' ghost'), onClick: () => modalUser(u) }, u.status === 'pending' ? 'Prüfen' : 'Bearbeiten')));
+    }) : [el('tr', {}, el('td', { colspan: 9, class: 'empty' }, 'Keine Nutzer in dieser Ansicht.'))])));
+  main.append(el('section', { class: 'card' },
+    el('div', { class: 'section-head' }, el('h2', {}, `Nutzer (${state.users.length})`),
+      el('div', { class: 'filter-row' }, ...filters.map(([id, label, fn]) => el('button', { class: 'filter' + (state.userFilter === id ? ' active' : ''), onClick: () => { state.userFilter = id; render(); } }, `${label} (${state.users.filter(fn).length})`)))),
+    el('div', { class: 'table-wrap' }, table)));
+}
+
+function adminEvents(main) {
+  const count = (list, ev) => list.filter((x) => x.eventId === ev.id).length;
+  main.append(el('section', { class: 'card' },
+    el('div', { class: 'section-head' }, el('h2', {}, `Events (${state.data.events.length})`), el('button', { class: 'btn small-btn', onClick: () => modalEventForm(null) }, '+ Event')),
+    el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
+      el('thead', {}, el('tr', {}, ...['Name', 'Beginn', 'Ende', 'Ressorts', 'Kennzahlen', 'Nutzer', ''].map((h) => el('th', {}, h)))),
+      el('tbody', {}, ...(state.data.events.length ? state.data.events.map((ev) => el('tr', {},
+        el('td', { class: 'strong' }, ev.name), el('td', {}, de(ev.startDate)), el('td', {}, de(ev.endDate)),
+        el('td', { class: 'num' }, count(state.data.ressorts, ev)), el('td', { class: 'num' }, count(state.data.kpis, ev)), el('td', { class: 'num' }, count(state.users, ev)),
+        el('td', { class: 'actions' }, el('button', { class: 'btn ghost small-btn', onClick: () => modalEventForm(ev) }, 'Bearbeiten'))))
+        : [el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'Noch keine Events.'))]))))));
+}
+
+function adminRessorts(main) {
+  const ev = curEvent();
+  if (!ev) { main.append(el('div', { class: 'card empty' }, 'Noch kein Event. Lege zuerst unter „Events“ eines an.')); return; }
+  const rs = evRessorts();
+  main.append(el('section', { class: 'card' },
+    el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, `Ressorts von „${ev.name}“`), el('div', { class: 'muted small' }, 'Anderes Event? Oben in der Event-Auswahl wechseln.')),
+      el('button', { class: 'btn small-btn', onClick: () => modalRessortForm(null) }, '+ Ressort')),
+    el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
+      el('thead', {}, el('tr', {}, ...['Ressort', 'Leitung', 'Kennzahlen', 'Nutzer', ''].map((h) => el('th', {}, h)))),
+      el('tbody', {}, ...rs.map((r) => el('tr', {},
+        el('td', {}, el('span', { class: 'with-dot strong' }, dot(r.color), r.name, r.isLead ? el('span', { class: 'chip lead' }, 'Führung · Event-Kennzahlen') : null, r.unreviewed ? el('span', { class: 'chip open' }, 'neu, ungeprüft') : null)),
+        el('td', {}, r.lead || '–'),
+        el('td', { class: 'num' }, state.data.kpis.filter((k) => k.ressortId === r.id).length),
+        el('td', { class: 'num' }, state.users.filter((u) => u.ressortId === r.id).length),
+        el('td', { class: 'actions' },
+          r.unreviewed ? el('button', { class: 'btn small-btn', onClick: () => act(() => api('PUT', `/api/ressorts/${r.id}`, { unreviewed: false }), 'Ressort bestätigt') }, 'Bestätigen') : null,
+          !r.isLead ? el('button', { class: 'btn ghost small-btn', onClick: () => modalMerge(r) }, 'Zusammenführen') : null,
+          el('button', { class: 'btn ghost small-btn', onClick: () => modalRessortForm(r) }, 'Bearbeiten')))))))));
 }
 
 // ---------- Modals ----------
@@ -289,13 +459,14 @@ function openModal(title, sub, body, foot, wide) {
     el('div', { class: 'modal-foot' }, ...foot(close)));
   const overlay = el('div', { class: 'overlay', onClick: (e) => e.target === overlay && close() }, modal);
   root.replaceChildren(overlay);
-  setTimeout(() => $('input,select,textarea,button.on', modal)?.focus(), 0);
+  setTimeout(() => $('input:not([disabled]),select:not([disabled]),textarea,button.on', modal)?.focus(), 0);
   return close;
 }
 const field = (label, input, hint, sub) => el('div', { class: 'field' }, el('label', { for: input.id }, label, sub ? el('span', {}, ' ' + sub) : null), input, hint ? el('div', { class: 'hint' }, hint) : null);
 const inp = (id, attrs = {}) => el('input', { id, ...attrs });
 const cancelBtn = (close) => el('button', { class: 'btn ghost', onClick: close }, 'Abbrechen');
 const infoBox = (l, v) => el('div', { class: 'info-box' }, el('div', { class: 'l' }, l), el('div', { class: 'v num' }, v));
+const closeOn = (close) => (ok) => ok && close();
 
 function modalValue(k) {
   const v = inp('f-value', { type: 'number', step: 'any', value: k.current });
@@ -304,8 +475,8 @@ function modalValue(k) {
     [el('div', { class: 'two' }, infoBox('Zielwert', targetLabel(k)), infoBox('Bisheriger Ist-Wert', valueLabel(k))),
       field('Neuer Ist-Wert', v, null, `(${k.unit || 'Wert'})`),
       field('Kommentar', note, 'Erscheint in der Historie.'),
-      el('div', { class: 'muted small' }, `Wird als Änderung von ${who()} protokolliert.`)],
-    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/kpis/${k.id}/value`, { value: v.value, note: note.value, who: who() }), 'Wert gespeichert').then(close) }, 'Speichern')]);
+      el('div', { class: 'muted small' }, `Wird als Änderung von ${state.me.name} protokolliert.`)],
+    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/kpis/${k.id}/value`, { value: v.value, note: note.value }), 'Wert gespeichert').then(closeOn(close)) }, 'Speichern')]);
 }
 
 function modalHistory(k) {
@@ -343,7 +514,7 @@ function modalAchieve(k) {
       dateField,
       field('Nachweis / Kommentar', note),
       od.length ? el('div', { class: 'warn-box' }, `Hinweis: ${od.length} Voraussetzung(en) noch offen (${od.map((d) => d.title).join(', ')}). Die Erreichung kann trotzdem eingetragen werden.`) : null],
-    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/kpis/${k.id}/achieve`, { achieved: form.yes, value: askNum ? form.value : undefined, achievedAt: form.date, note: note.value, who: who() }), 'Erreichung gespeichert').then(close) }, 'Erreichung speichern')]);
+    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/kpis/${k.id}/achieve`, { achieved: form.yes, value: askNum ? form.value : undefined, achievedAt: form.date, note: note.value }), 'Erreichung gespeichert').then(closeOn(close)) }, 'Erreichung speichern')]);
 }
 
 function modalKpiForm(k, ressortId) {
@@ -355,27 +526,36 @@ function modalKpiForm(k, ressortId) {
   const unit = inp('k-unit', { value: k?.unit || '', placeholder: 'Tickets, €, Speaker …' });
   const current = inp('k-current', { type: 'number', step: 'any', value: k ? k.current : 0 });
   const deadline = inp('k-deadline', { type: 'date', value: k?.deadline || '' });
-  const ownerSel = el('select', { id: 'k-owner' }, el('option', { value: '', selected: !rid }, 'Event (übergeordnet)'), ...evRessorts().map((r) => el('option', { value: r.id, selected: rid === r.id }, r.name)));
+  // Ressort wechseln dürfen nur Admins
+  const ownerSel = el('select', { id: 'k-owner', disabled: !isAdmin() }, ...evRessorts().map((r) => el('option', { value: r.id, selected: rid === r.id }, r.name + (r.isLead ? ' (Event-Kennzahlen)' : ''))));
   const desc = el('textarea', { id: 'k-desc', rows: 2, placeholder: 'Optional: Was misst diese Kennzahl, woher kommen die Daten?' }, k?.description || '');
-  const depsBox = el('div', { class: 'deps-list' }, ...evKpis().filter((x) => x.id !== k?.id).map((x) => el('label', {}, el('input', { type: 'checkbox', value: x.id, checked: k?.deps.includes(x.id) }), el('span', { class: 'grow' }, x.title), el('span', { class: 'muted small' }, owner(x)))));
+  // Abhängigkeiten nur innerhalb desselben Ressorts
+  const depsBox = el('div', { class: 'deps-list' });
+  const syncDeps = () => {
+    const keep = ownerSel.value === k?.ressortId ? k.deps : [];
+    const candidates = evKpis().filter((x) => x.id !== k?.id && x.ressortId === ownerSel.value);
+    depsBox.replaceChildren(...(candidates.length ? candidates.map((x) => el('label', {}, el('input', { type: 'checkbox', value: x.id, checked: keep.includes(x.id) }), el('span', { class: 'grow' }, x.title), el('span', { class: 'muted small' }, TYPE_LABEL[x.type])))
+      : [el('span', { class: 'muted small' }, 'Keine weiteren Kennzahlen in diesem Ressort.')]));
+  };
+  ownerSel.addEventListener('change', syncDeps); syncDeps();
   const numFields = el('div', { class: 'two' }, field('Zielwert', target), field('Einheit', unit));
   const curField = field(isNew ? 'Aktueller Ist-Wert' : 'Ist-Wert', current, isNew ? null : 'Zum Nachtragen bitte „Wert eingeben“ nutzen – hier nicht änderbar.');
   if (!isNew) current.disabled = true;
   const syncType = () => { const n = type.value === 'number' || type.value === 'combo'; numFields.style.display = n ? '' : 'none'; curField.style.display = n ? '' : 'none'; };
   type.addEventListener('change', syncType); syncType();
   if (!isNew) type.disabled = true;
-  const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, ressortId: ownerSel.value || null, description: desc.value, deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value), who: who() });
-  openModal(isNew ? 'Neue Kennzahl' : k.title, isNew ? (rid ? ressort(rid).name : 'Event') + ' · anlegen' : owner(k) + ' · bearbeiten',
+  const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, ressortId: ownerSel.value, description: desc.value, deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value) });
+  openModal(isNew ? 'Neue Kennzahl' : k.title, isNew ? ressort(rid).name + ' · anlegen' : owner(k) + ' · bearbeiten',
     [field('Bezeichnung', title),
-      el('div', { class: 'two' }, field('Typ', type, isNew ? null : 'Der Typ ist nach dem Anlegen fest.'), field('Zugeordnet zu', ownerSel)),
+      el('div', { class: 'two' }, field('Typ', type, isNew ? null : 'Der Typ ist nach dem Anlegen fest.'), field('Ressort', ownerSel, isAdmin() ? null : 'Zuordnung ändert nur ein Admin.')),
       numFields, curField,
       field('Frist / Zieldatum', deadline),
       field('Beschreibung', desc),
-      el('div', { class: 'field' }, el('label', {}, 'Abhängig von ', el('span', {}, '(Voraussetzungen)')), depsBox)],
+      el('div', { class: 'field' }, el('label', {}, 'Abhängig von ', el('span', {}, '(Voraussetzungen aus demselben Ressort)')), depsBox)],
     (close) => [
-      !isNew && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ wirklich löschen? Die Historie geht verloren.`) && act(() => api('DELETE', `/api/kpis/${k.id}`), 'Kennzahl gelöscht').then(close) }, 'Löschen'),
+      !isNew && isAdmin() && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ wirklich löschen? Die Historie geht verloren.`) && act(() => api('DELETE', `/api/kpis/${k.id}`), 'Kennzahl gelöscht').then(closeOn(close)) }, 'Löschen'),
       cancelBtn(close),
-      el('button', { class: 'btn', onClick: () => { if (!title.value.trim()) return alert('Bitte eine Bezeichnung angeben.'); act(() => isNew ? api('POST', '/api/kpis', { eventId: state.eventId, ...payload() }) : api('PUT', `/api/kpis/${k.id}`, payload()), isNew ? 'Kennzahl angelegt' : 'Kennzahl gespeichert').then(close); } }, isNew ? 'Anlegen' : 'Speichern')], true);
+      el('button', { class: 'btn', onClick: () => { if (!title.value.trim()) return alert('Bitte eine Bezeichnung angeben.'); act(() => isNew ? api('POST', '/api/kpis', payload()) : api('PUT', `/api/kpis/${k.id}`, payload()), isNew ? 'Kennzahl angelegt' : 'Kennzahl gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')], true);
 }
 
 function modalRessortForm(r) {
@@ -384,12 +564,23 @@ function modalRessortForm(r) {
   const lead = inp('r-lead', { value: r?.lead || '', placeholder: 'Verantwortliche Person' });
   const color = inp('r-color', { type: 'color', value: r?.color || PALETTE[evRessorts().length % PALETTE.length], style: 'width:60px;padding:2px' });
   const payload = () => ({ name: name.value.trim(), lead: lead.value.trim(), color: color.value });
-  openModal(isNew ? 'Neues Ressort' : r.name, isNew ? 'Ressort anlegen' : 'Ressort bearbeiten',
-    [field('Name', name), field('Leitung', lead), field('Farbe', color)],
+  openModal(isNew ? 'Neues Ressort' : r.name, isNew ? 'Ressort anlegen' : r.isLead ? 'Führungsressort bearbeiten' : 'Ressort bearbeiten',
+    [field('Name', name), field('Leitung', lead), field('Farbe', color),
+      r?.isLead ? el('div', { class: 'muted small' }, 'Das Führungsressort pflegt die Event-Kennzahlen. Es lässt sich umbenennen, aber nicht löschen.') : null],
     (close) => [
-      !isNew && el('button', { class: 'btn danger left', onClick: () => confirm(`„${r.name}“ und alle zugehörigen Kennzahlen löschen?`) && act(() => api('DELETE', `/api/ressorts/${r.id}`), 'Ressort gelöscht').then(() => { close(); go('overview'); }) }, 'Löschen'),
+      !isNew && !r.isLead && el('button', { class: 'btn danger left', onClick: () => confirm(`„${r.name}“ und alle zugehörigen Kennzahlen löschen?`) && act(() => api('DELETE', `/api/ressorts/${r.id}`), 'Ressort gelöscht').then((ok) => { if (!ok) return; close(); if (state.view === 'ressort') go('overview'); }) }, 'Löschen'),
       cancelBtn(close),
-      el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/ressorts', { eventId: state.eventId, ...payload() }) : await api('PUT', `/api/ressorts/${r.id}`, payload()); if (isNew) { state.view = 'ressort'; state.ressortId = res.id; } }, isNew ? 'Ressort angelegt' : 'Ressort gespeichert').then(close); } }, isNew ? 'Anlegen' : 'Speichern')]);
+      el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/ressorts', { eventId: state.eventId, ...payload() }) : await api('PUT', `/api/ressorts/${r.id}`, payload()); if (isNew && state.view !== 'admin') { state.view = 'ressort'; state.ressortId = res.id; } }, isNew ? 'Ressort angelegt' : 'Ressort gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')]);
+}
+
+function modalMerge(r) {
+  const targets = evRessorts().filter((x) => x.id !== r.id);
+  const sel = el('select', { id: 'm-into' }, ...targets.map((x) => el('option', { value: x.id }, x.name)));
+  const nK = state.data.kpis.filter((k) => k.ressortId === r.id).length, nU = state.users.filter((u) => u.ressortId === r.id).length;
+  openModal(r.name, 'Ressort zusammenführen',
+    [field('Zusammenführen mit', sel),
+      el('div', { class: 'warn-box' }, `${nK} Kennzahl(en) und ${nU} Nutzer von „${r.name}“ wandern in das gewählte Ressort. „${r.name}“ wird danach gelöscht.`)],
+    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/admin/ressorts/${r.id}/merge`, { intoId: sel.value }), 'Ressorts zusammengeführt').then(closeOn(close)) }, 'Zusammenführen')]);
 }
 
 function modalEventForm(ev) {
@@ -399,20 +590,75 @@ function modalEventForm(ev) {
   const end = inp('e-end', { type: 'date', value: ev?.endDate || '' });
   const payload = () => ({ name: name.value.trim(), startDate: start.value || null, endDate: end.value || null });
   openModal(isNew ? 'Neues Event' : ev.name, isNew ? 'Event anlegen' : 'Event bearbeiten',
-    [field('Name', name), el('div', { class: 'two' }, field('Beginn', start), field('Ende', end))],
+    [field('Name', name), el('div', { class: 'two' }, field('Beginn', start), field('Ende', end)),
+      isNew ? el('div', { class: 'muted small' }, 'Das Führungsressort für die Event-Kennzahlen wird automatisch angelegt.') : null],
     (close) => [
-      !isNew && el('button', { class: 'btn danger left', onClick: () => confirm(`„${ev.name}“ mit allen Ressorts und Kennzahlen löschen?`) && act(() => api('DELETE', `/api/events/${ev.id}`), 'Event gelöscht').then(() => { close(); go('overview'); }) }, 'Löschen'),
+      !isNew && el('button', { class: 'btn danger left', onClick: () => confirm(`„${ev.name}“ mit allen Ressorts und Kennzahlen löschen? Zugeordnete Nutzer verlieren ihre Zuordnung.`) && act(() => api('DELETE', `/api/events/${ev.id}`), 'Event gelöscht').then(closeOn(close)) }, 'Löschen'),
       cancelBtn(close),
-      el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/events', payload()) : await api('PUT', `/api/events/${ev.id}`, payload()); if (isNew) { state.eventId = res.id; state.view = 'overview'; } }, isNew ? 'Event angelegt' : 'Event gespeichert').then(close); } }, isNew ? 'Anlegen' : 'Speichern')]);
+      el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/events', payload()) : await api('PUT', `/api/events/${ev.id}`, payload()); if (isNew) state.eventId = res.id; }, isNew ? 'Event angelegt' : 'Event gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')]);
+}
+
+// Lesbares Einmal-Passwort ohne verwechselbare Zeichen
+function randomPassword() {
+  const abc = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return [...crypto.getRandomValues(new Uint32Array(14))].map((n) => abc[n % abc.length]).join('');
+}
+
+function modalUser(u) {
+  const isSelf = u.id === state.me.id;
+  const name = inp('u-name', { value: u.name });
+  const email = inp('u-email', { type: 'email', value: u.email });
+  const role = el('select', { id: 'u-role' }, el('option', { value: 'member', selected: u.role === 'member' }, 'Mitglied'), el('option', { value: 'admin', selected: u.role === 'admin' }, 'Admin'));
+  const status = el('select', { id: 'u-status' }, ...[['pending', 'Wartet auf Freigabe'], ['active', 'Aktiv'], ['disabled', 'Gesperrt']].map(([v, l]) => el('option', { value: v, selected: u.status === v }, l)));
+  const evSel = el('select', { id: 'u-event' }, el('option', { value: '' }, '– kein Event –'), ...state.data.events.map((e) => el('option', { value: e.id, selected: e.id === u.eventId }, e.name)));
+  const rSel = el('select', { id: 'u-ressort' });
+  const newName = inp('u-new', { value: u.requestedRessortName || '', maxlength: 60 });
+  const newField = field('Name des neuen Ressorts', newName, 'Gibt es schon ein Ressort mit diesem Namen im Event, wird es verwendet.');
+  const wantsNew = !u.ressortId && !!u.requestedRessortName;
+  const syncRessorts = (initial) => {
+    rSel.replaceChildren(el('option', { value: '' }, '– kein Ressort –'), ...ressortsOf(evSel.value).map((r) => el('option', { value: r.id, selected: initial && r.id === u.ressortId }, r.name + (r.isLead ? ' (Event-Kennzahlen)' : ''))),
+      el('option', { value: '__new', selected: initial && wantsNew }, 'Neues Ressort anlegen …'));
+    syncNew();
+  };
+  const syncNew = () => (newField.hidden = rSel.value !== '__new');
+  evSel.addEventListener('change', () => syncRessorts(false));
+  rSel.addEventListener('change', syncNew);
+  syncRessorts(true);
+  const pw = inp('u-pw', { value: randomPassword(), style: 'flex:1' });
+  const payload = (extra = {}) => ({ name: name.value, email: email.value, role: role.value, status: status.value, eventId: evSel.value || null,
+    ressortId: rSel.value === '__new' ? null : rSel.value || null, newRessortName: rSel.value === '__new' ? newName.value : '', ...extra });
+  const save = (close, extra, msg) => act(() => api('PUT', `/api/admin/users/${u.id}`, payload(extra)), msg).then(closeOn(close));
+  openModal(u.name, u.status === 'pending' ? 'Registrierung prüfen' : 'Nutzer bearbeiten',
+    [wantsNew ? el('div', { class: 'warn-box' }, `Wunsch bei der Registrierung: neues Ressort „${u.requestedRessortName}“. Lege es an oder ordne ein bestehendes Ressort zu.`) : null,
+      el('div', { class: 'two' }, field('Name', name), field('E-Mail', email)),
+      el('div', { class: 'two' }, field('Rolle', role), field('Status', status)),
+      el('div', { class: 'two' }, field('Event', evSel), field('Ressort', rSel)),
+      newField,
+      el('div', { class: 'field' }, el('label', { for: 'u-pw' }, 'Einmal-Passwort setzen'),
+        el('div', { style: 'display:flex;gap:8px' }, pw, el('button', { class: 'btn ghost', onClick: () => act(() => api('POST', `/api/admin/users/${u.id}/password`, { password: pw.value }), 'Einmal-Passwort gesetzt – bitte sicher weitergeben') }, 'Setzen')),
+        el('div', { class: 'hint' }, 'Bestehende Anmeldungen enden. Beim nächsten Login muss ein eigenes Passwort gewählt werden.'))],
+    (close) => [
+      !isSelf && el('button', { class: 'btn danger left', onClick: () => confirm(`Konto von „${u.name}“ löschen? Einträge in der Historie bleiben mit Namen erhalten.`) && act(() => api('DELETE', `/api/admin/users/${u.id}`), 'Nutzer gelöscht').then(closeOn(close)) }, 'Löschen'),
+      cancelBtn(close),
+      u.status === 'pending' ? el('button', { class: 'btn', onClick: () => save(close, { status: 'active' }, 'Nutzer freigegeben') }, 'Freigeben') : null,
+      el('button', { class: u.status === 'pending' ? 'btn ghost' : 'btn', onClick: () => save(close, {}, 'Nutzer gespeichert') }, 'Speichern')], true);
+}
+
+function modalPassword() {
+  const cur = inp('mp-cur', { type: 'password', autocomplete: 'current-password' });
+  const pw1 = inp('mp-new', { type: 'password', autocomplete: 'new-password' });
+  const pw2 = inp('mp-new2', { type: 'password', autocomplete: 'new-password' });
+  openModal('Passwort ändern', state.me.name,
+    [field('Aktuelles Passwort', cur), field('Neues Passwort', pw1, `Mindestens ${MIN_PASSWORD} Zeichen. Andere Anmeldungen werden beendet.`), field('Neues Passwort wiederholen', pw2)],
+    (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => {
+      if (pw1.value !== pw2.value) return alert('Die beiden neuen Passwörter stimmen nicht überein.');
+      act(() => api('POST', '/api/auth/password', { currentPassword: cur.value, newPassword: pw1.value }), 'Passwort geändert').then(closeOn(close));
+    } }, 'Speichern')]);
 }
 
 // ---------- Start ----------
-$('#who').value = localStorage.getItem('okr.who') || '';
-$('#who').addEventListener('change', (e) => localStorage.setItem('okr.who', e.target.value));
-$('#event-select').addEventListener('change', (e) => { state.eventId = e.target.value; state.sel = null; go('overview'); });
-$('#btn-new-event').addEventListener('click', () => modalEventForm(null));
-$('#btn-edit-event').addEventListener('click', () => curEvent() && modalEventForm(curEvent()));
+$('#event-select').addEventListener('change', (e) => { state.eventId = e.target.value; if (state.view !== 'admin') state.view = 'overview'; render(); });
 $('#btn-new-ressort').addEventListener('click', () => curEvent() ? modalRessortForm(null) : alert('Bitte zuerst ein Event anlegen.'));
 document.querySelectorAll('.nav[data-view]').forEach((b) => b.addEventListener('click', () => go(b.dataset.view)));
 document.addEventListener('keydown', (e) => e.key === 'Escape' && $('#modal-root').replaceChildren());
-reload().catch((e) => alert('Server nicht erreichbar: ' + e.message));
+api('GET', '/api/auth/me').then(({ user }) => startApp(user)).catch(() => showAuth('login'));

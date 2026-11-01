@@ -1,3 +1,4 @@
+# Nur für die lokale Entwicklung (OrbStack). In Coolify wird direkt das Dockerfile gebaut.
 services:
   okr-tracker:
     build: .
@@ -9,4 +10,11 @@ services:
     environment:
       # SEED=false startet ohne Demo-Daten (nur beim allerersten Start relevant)
       SEED: "true"
+      # Lokaler Test-Admin, wird nur angelegt, solange es keinen Admin gibt.
+      # Das Passwort muss beim ersten Login geändert werden.
+      ADMIN_EMAIL: "admin@example.test"
+      ADMIN_PASSWORD: "lokal-admin-2026"
+      ADMIN_NAME: "Admin (lokal)"
+      # Erlaubt POST /api/reset für Admins – nur lokal
+      ALLOW_RESET: "true"
     restart: unless-stopped

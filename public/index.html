@@ -9,27 +9,28 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div id="auth-root" hidden></div>
+
+<div id="app" hidden>
 <header class="topbar">
   <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Eventkompass</div>
   <div class="divider"></div>
   <label for="event-select" class="muted small">Event</label>
   <select id="event-select"></select>
-  <button class="btn ghost small-btn" id="btn-new-event">+ Event</button>
-  <button class="btn ghost small-btn" id="btn-edit-event" title="Event bearbeiten">Bearbeiten</button>
   <div class="spacer"></div>
-  <label for="who" class="muted small">Dein Name</label>
-  <input id="who" placeholder="z. B. Lena H." style="width:140px">
+  <div class="user-box" id="user-box"></div>
 </header>
 
 <div class="layout">
   <nav class="sidebar" aria-label="Navigation">
     <button class="nav" data-view="overview">Übersicht</button>
-    <button class="nav" data-view="graph">Abhängigkeiten</button>
-    <div class="nav-head"><span>Ressorts · <span id="ressort-count">0</span></span><button class="icon-btn" id="btn-new-ressort" aria-label="Ressort hinzufügen">+</button></div>
+    <button class="nav" data-view="admin" id="nav-admin" hidden><span class="grow">Verwaltung</span><span class="badge" id="pending-badge" title="Warten auf Freigabe" hidden></span></button>
+    <div class="nav-head"><span>Ressorts · <span id="ressort-count">0</span></span><button class="icon-btn" id="btn-new-ressort" aria-label="Ressort hinzufügen" hidden>+</button></div>
     <div id="nav-ressorts"></div>
     <div class="side-note" id="side-note"></div>
   </nav>
   <main id="main"></main>
+</div>
 </div>
 
 <div id="modal-root"></div>

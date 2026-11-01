@@ -4,81 +4,76 @@ Projektnotizen für Claude Code. Sprache im Projekt (UI, Kommentare, Fehlermeldu
 
 ## Was ist das?
 
-**Eventkompass** – OKR-/Kennzahlen-Tracker für Events (v0.1, erste lokale Testversion).
-Ein Event hat Ressorts (z. B. Marketing, Sponsoring); Kennzahlen (KPIs) hängen am Event oder an einem Ressort,
-haben Ziel, Ist-Wert, Frist, Abhängigkeiten zu anderen KPIs und eine Änderungshistorie.
+**Eventkompass** – OKR-/Kennzahlen-Tracker für Events (v0.2).
+Ein Event hat Ressorts (eins davon ist das **Führungsressort** mit den Event-Kennzahlen); jede Kennzahl (KPI) gehört
+zu genau einem Ressort und hat Ziel, Ist-Wert, Frist, Abhängigkeiten (nur im selben Ressort) und eine Änderungshistorie.
+Nutzer registrieren sich mit Event + Ressort und dürfen nur Kennzahlen ihres eigenen Ressorts bearbeiten, alle sehen alles.
 
 Namen: Ordner `okr-tracker`, npm-Paket `okr-event-tracker`, Container `okr-tracker`, UI-Titel „Eventkompass“.
+Plan und offene Punkte: `PLAN.md`.
 
-## Stack
+## Stack & Dateien
 
-- **Backend:** Node (ESM, `"type": "module"`), Express 4, eine Datei: `server.js`
-- **Speicher:** keine Datenbank – der gesamte Zustand liegt im Speicher und wird bei jeder Änderung komplett
-  nach `DATA_DIR/data.json` geschrieben (atomar über `.tmp` + `rename`)
-- **Frontend:** Vanilla JS ohne Framework/Build-Schritt: `public/index.html`, `public/app.js`, `public/style.css`.
-  Wird von Express statisch ausgeliefert. Schrift Inter von Google Fonts.
-- **Demo-Daten:** `seed.js` (Summit 2027, 5 Ressorts, 16 KPIs)
-- Keine Tests, kein Linter, kein Build.
+- **Backend:** Node (ESM), Express 4, keine weiteren Abhängigkeiten
+  - `server.js` – nur Start (Umgebungsvariablen → `createApp()` → `listen`)
+  - `lib/app.js` – `createApp()`: alle Routen, Rechteprüfung, Fachlogik
+  - `lib/store.js` – JSON-Speicher + `migrate()` (läuft bei jedem Start, muss idempotent bleiben)
+  - `lib/auth.js` – scrypt-Passwörter, Session-Tokens, Cookies, Login-Bremse
+- **Frontend:** Vanilla JS ohne Build: `public/index.html`, `public/app.js`, `public/style.css`
+- **Demo-Daten:** `seed.js` · **Tests:** `test/api.test.js` (`npm test`, `node:test`, startet die App mit Temp-Ordner)
 
 ## Lokal starten (OrbStack / Docker)
 
 Die App läuft in OrbStack unter **http://localhost:8090**.
 
 ```bash
-docker compose up -d --build   # bauen + starten (oder ./start-dev.command per Doppelklick)
-docker compose logs -f         # Logs
-docker compose down            # stoppen
-curl http://localhost:8090/api/health
+docker compose up -d --build   # bauen + starten (oder ./start-dev.command)
+docker compose logs -f
+docker compose down
+npm test                        # API-Tests, laufen ohne Docker
 ```
 
-**Ports:** Im Container lauscht die App auf `8080` (Dockerfile `ENV PORT=8080`), nach außen gemappt auf **8090**
-(`docker-compose.yml`: `"8090:8080"`). Port 8080 auf dem Host ist durch ein anderes Projekt belegt
-(`maki-caddy`) – nicht auf 8080 zurückstellen.
+- **Ports:** im Container `8080`, nach außen **8090**. Port 8080 auf dem Host ist durch ein anderes Projekt belegt (`maki-caddy`).
+- **Code-Änderungen** wirken erst nach `docker compose up -d --build` (Code wird ins Image kopiert, nur `./data` ist gemountet).
+- **Lokaler Admin:** `ADMIN_EMAIL`/`ADMIN_PASSWORD` in `docker-compose.yml`; wird nur angelegt, solange es keinen Admin gibt.
+  Erster Login erzwingt einen Passwortwechsel. Für einen frischen Stand: Container stoppen, `data/data.json` löschen, neu starten.
+- Container läuft als `node` (nicht root); Dockerfile macht `/app` lesbar, weil lokale Dateien teils Rechte 600 haben.
 
-**Code-Änderungen** werden nur nach `docker compose up -d --build` wirksam – `server.js`, `seed.js` und `public/`
-werden ins Image kopiert, nicht gemountet. Nur `./data` ist als Volume gemountet (`./data:/data`).
+## Daten (`data/data.json`, `version: 2`)
 
-Ohne Docker: `npm install`, dann `PORT=8090 npm start` bzw. `PORT=8090 npm run dev` (`node --watch`).
-Ohne `PORT` wäre der Standard 8080 → kollidiert hier. Docker-Image nutzt Node 22, lokal ist Node 24 installiert.
+- Nicht von Hand ändern, während der Container läuft (Zustand liegt im Speicher und wird komplett überschrieben).
+- `{ version, events, ressorts, kpis, users, sessions, settings }` – `GET /api/state` gibt **nur** events/ressorts/kpis heraus,
+  nie `users`, `sessions` oder Passwort-Hashes. Nutzer nach außen immer über `publicUser()`.
+- **Ressort:** `id, eventId, name, lead, color, isLead, unreviewed, createdAt`. Je Event genau ein `isLead` (nicht löschbar,
+  wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
+- **KPI:** `id, eventId, ressortId` (nie null), `title, description, type, target, current, unit, deadline, achieved,
+  achievedFlag, achievedAt, deps[], history[], createdAt, updatedAt`
+  - Typen: `number` (erreicht bei `current >= target`), `bool`, `date` (manuell), `combo` (Zahl erreicht **und** `achievedFlag`)
+  - `deps` nur auf KPIs mit gleicher `ressortId` (`cleanDeps()`); Ressortwechsel löst Abhängigkeiten in beide Richtungen
+  - History: `id, at, who, userId, kind, from, to, note`, neueste zuerst; `who`/`userId` kommen aus der Session
+- **User:** `id, email, name, passwordHash, role ('admin'|'member'), eventId, ressortId, requestedRessortName,
+  status ('pending'|'active'|'disabled'), mustChangePassword, createdAt, approvedAt, approvedBy ('admin'|'auto'), lastLoginAt`
+- **Session:** `tokenHash` (SHA-256 des Cookie-Tokens), `userId`, `expiresAt` (30 Tage). Cookie `ek_session`, `Secure` nur bei HTTPS.
+- **Settings:** `autoApproveUntil` – solange in der Zukunft, sind neue Registrierungen sofort aktiv.
 
-## Daten
+## Rechte (Server ist maßgeblich, UI blendet nur aus)
 
-- `data/data.json` – echte Laufzeitdaten, in `.gitignore`/`.dockerignore`. Nicht von Hand ändern, während der
-  Container läuft (der Server hält den Zustand im Speicher und überschreibt die Datei beim nächsten Speichern).
-- Seed nur beim allerersten Start, wenn `data.json` fehlt. `SEED: "false"` in `docker-compose.yml` → leerer Start.
-- `POST /api/reset` lädt die Demo-Daten neu, `POST /api/reset?empty=1` leert alles. **Ohne Rückfrage, ohne Schutz** –
-  nicht gegen echte Daten aufrufen.
-
-## Datenmodell (`{ events, ressorts, kpis }`)
-
-- **Event:** `id, name, startDate, endDate, createdAt`
-- **Ressort:** `id, eventId, name, lead, color, createdAt`
-- **KPI:** `id, eventId, ressortId|null` (null = Event-Ebene), `title, description, type, target, current, unit,
-  deadline, achieved, achievedFlag, achievedAt, deps[], history[], createdAt, updatedAt`
-- **KPI-Typen** (`KPI_TYPES` in `server.js`, Labels in `TYPE_LABEL` in `app.js`):
-  - `number` – Anzahl; erreicht, wenn `current >= target` (automatisch)
-  - `bool` – Ja/Nein; manuell über `/achieve`
-  - `date` – Meilenstein; manuell über `/achieve`, mit Datum
-  - `combo` – Anzahl + Datum; erreicht, wenn `current >= target` **und** `achievedFlag`
-- **History-Eintrag:** `id, at, who, kind, from, to, note` – neueste zuerst (`unshift`). `kind` ist ein deutscher
-  Freitext („Ziel gesetzt“, „Wert aktualisiert“, „Erreichung eingetragen“, „Stammdaten geändert“, „Kommentar“).
-- Löschen kaskadiert im Server: Event → Ressorts + KPIs; Ressort → dessen KPIs; KPI-IDs werden aus `deps` anderer KPIs entfernt.
-- Datumsfelder sind ISO-Strings `YYYY-MM-DD`; Zeitstempel volles ISO.
-
-## API
-
-Siehe Tabelle in `README.md`. Zusätzlich `GET /api/health`. Fehler: `400 { error }` bzw. `404 { error: 'Nicht gefunden' }`.
-Der Autor (`who`) kommt aus dem Feld „Dein Name“ im Frontend (in `localStorage` unter `okr.who`), Standard „Unbekannt“.
+- `canEditRessort(user, ressortId)`: Admin oder `user.ressortId === ressortId`. Gilt für Anlegen, Wert, Erreichung, Stammdaten.
+- Nur Admin: KPI löschen, KPI anderem Ressort zuordnen, Events/Ressorts verwalten, `/api/admin/*`, `/api/reset` (+ `ALLOW_RESET`).
+- Das Führungsressort hat **keine** Sonderrechte – es pflegt nur seine eigenen (Event-)Kennzahlen.
+- Schutz: letzter aktiver Admin kann nicht herabgestuft/gesperrt/gelöscht werden; Sperren/Einmal-Passwort beendet Sessions.
+- Neue schreibende Endpunkte: Rechte prüfen **und** einen Test in `test/api.test.js` ergänzen.
 
 ## Frontend-Konventionen (`public/app.js`)
 
-- Kleine Helfer: `$()` für `querySelector`, `el(tag, attrs, ...children)` zum DOM-Bauen (kein `innerHTML` für Nutzerdaten).
-- Globaler `state` (`data, eventId, view, ressortId`); nach jeder Änderung `act(fn, msg)` → API-Call → `reload()` → komplettes `render()`.
-- Ansichten: `overview`, `ressort`, `graph` (Abhängigkeits-Graph als SVG). Dialoge über `openModal()`.
-- Status-Logik (Erreicht / Überfällig / Blockiert / Im Plan ≥70 % / Gefährdet ≥40 % / Kritisch) in `status(k)` – nur im Frontend.
-- Zahlen/Daten deutsch formatieren (`toLocaleString('de-DE')`, `de()`).
+- Helfer: `$()`, `el(tag, attrs, ...children)` zum DOM-Bauen (kein `innerHTML` für Nutzerdaten), `append()` statt
+  `Element.append` bei bedingten Kindern (sonst erscheint „null“ als Text).
+- Globaler `state` (`me, data, users, eventId, view, ressortId, adminTab, userFilter`). Änderungen über
+  `act(fn, msg)` → API → `reload()` → `render()`; `act` liefert `true/false`, Dialoge schließen mit `closeOn(close)`.
+- Ansichten: `overview`, `ressort`, `admin` (Reiter Nutzer / Events / Ressorts). Anmeldung: `showAuth('login'|'register'|'pending'|'password')`.
+- `api()` leitet bei 401 bzw. `PASSWORD_CHANGE_REQUIRED` selbst zur Anmeldung um (Fehler mit `silent`).
+- Zahlen/Daten deutsch formatieren (`toLocaleString('de-DE')`, `de()`, `deTime()`).
 
-## Bekannte Grenzen (v0.1)
+## Deployment
 
-Keine Anmeldung/Rechte, keine Konflikterkennung bei mehreren Nutzern, JSON-Datei statt DB, kein Drag & Drop im Graphen.
-Kein Git-Repository initialisiert.
+Ziel ist Coolify (Dockerfile-Build, Volume auf `/data`, zunächst HTTP-Domain) – Schritte in `PLAN.md`, Phase 5.
