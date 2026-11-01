@@ -130,7 +130,7 @@ function authForm(fields, label, onSubmit) {
 function authLogin(card, notice) {
   const email = inp('l-email', { type: 'email', autocomplete: 'username' });
   const pw = inp('l-pw', { type: 'password', autocomplete: 'current-password' });
-  append(card, 
+  append(card,
     el('h1', {}, 'Anmelden'),
     notice ? el('div', { class: 'info-box small' }, notice) : null,
     authForm([field('E-Mail', email), field('Passwort', pw)], 'Anmelden', async () => {
@@ -162,10 +162,13 @@ async function authRegister(card) {
   rSel.addEventListener('change', syncNew);
   if (opts.events.length === 1) evSel.value = opts.events[0].id;
   syncRessorts();
-  append(card, 
-    authForm([field('Name', name), field('E-Mail', email), field('Passwort', pw, `Mindestens ${MIN_PASSWORD} Zeichen.`), field('Event', evSel), field('Ressort', rSel), newField], 'Konto anlegen', async () => {
-      if (!evSel.value) throw new Error('Bitte ein Event auswählen.');
-      if (!rSel.value) throw new Error('Bitte ein Ressort auswählen.');
+  // Ohne Events (frische Installation) kann sich nur der eingerichtete Admin registrieren – der Server entscheidet.
+  const noEvents = !opts.events.length;
+  append(card,
+    noEvents ? el('div', { class: 'info-box small' }, 'Es ist noch kein Event angelegt.') : null,
+    authForm([field('Name', name), field('E-Mail', email), field('Passwort', pw, `Mindestens ${MIN_PASSWORD} Zeichen.`), !noEvents && field('Event', evSel), !noEvents && field('Ressort', rSel), newField], 'Konto anlegen', async () => {
+      if (!noEvents && !evSel.value) throw new Error('Bitte ein Event auswählen.');
+      if (!noEvents && !rSel.value) throw new Error('Bitte ein Ressort auswählen.');
       if (pw.value.length < MIN_PASSWORD) throw new Error(`Das Passwort muss mindestens ${MIN_PASSWORD} Zeichen haben.`);
       const isNew = rSel.value === '__new';
       const res = await api('POST', '/api/auth/register', { name: name.value, email: email.value, password: pw.value, eventId: evSel.value, ressortId: isNew ? null : rSel.value, newRessortName: isNew ? newName.value : '' });

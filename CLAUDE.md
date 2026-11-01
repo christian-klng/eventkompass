@@ -37,6 +37,8 @@ npm test                        # API-Tests, laufen ohne Docker
 - **Code-Änderungen** wirken erst nach `docker compose up -d --build` (Code wird ins Image kopiert, nur `./data` ist gemountet).
 - **Lokaler Admin:** `ADMIN_EMAIL`/`ADMIN_PASSWORD` in `docker-compose.yml`; wird nur angelegt, solange es keinen Admin gibt.
   Erster Login erzwingt einen Passwortwechsel. Für einen frischen Stand: Container stoppen, `data/data.json` löschen, neu starten.
+  Alternativ (so auf dem Server): nur `ADMIN_EMAIL` setzen – wer sich mit dieser Adresse registriert, wird Admin, solange es keinen gibt.
+  Beim Start loggt die App, ob und welche Admins existieren.
 - Container läuft als `node` (nicht root); Dockerfile macht `/app` lesbar, weil lokale Dateien teils Rechte 600 haben.
 
 ## Daten (`data/data.json`, `version: 2`)

@@ -35,7 +35,7 @@ Ohne `PORT` startet der Server auf 8080 – der Port ist auf diesem Mac schon be
 | `PORT` | Port im Container/Prozess (Standard 8080) |
 | `DATA_DIR` | Ordner für `data.json` (im Image `/data`) |
 | `SEED` | `false` = erster Start ohne Demo-Daten |
-| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | Legt beim Start einen Admin an, **solange es noch keinen gibt** |
+| `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME` | Legt beim Start einen Admin an, **solange es noch keinen gibt**. Ohne `ADMIN_PASSWORD`: Wer sich mit `ADMIN_EMAIL` registriert, wird Admin (nur solange es keinen gibt, auch ohne Event) |
 | `ALLOW_RESET` | `true` erlaubt Admins `POST /api/reset` – nur lokal |
 
 ## Was geht

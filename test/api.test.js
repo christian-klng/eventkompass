@@ -221,3 +221,26 @@ test('Login-Bremse nach zu vielen Fehlversuchen', async () => {
   for (let i = 0; i < 11; i++) last = await c('POST', '/api/auth/login', { email: 'bremse@example.test', password: 'falsch-falsch' });
   assert.equal(last.status, 429);
 });
+
+test('Frische Installation ohne ADMIN_PASSWORD: Registrierung mit ADMIN_EMAIL wird Admin', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-test-'));
+  const { app } = await createApp({ dataDir: dir, seed: false, adminEmail: 'Chef@Example.test', log: () => {} });
+  const srv = await new Promise((resolve) => { const s = app.listen(0, () => resolve(s)); });
+  const url = `http://127.0.0.1:${srv.address().port}`;
+  const post = (p, body) => fetch(url + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+  try {
+    const other = await post('/api/auth/register', { name: 'Jemand', email: 'jemand@example.test', password: 'passwort-123' });
+    assert.equal(other.status, 400, 'ohne Event keine normale Registrierung');
+    const chef = await post('/api/auth/register', { name: 'Chef', email: 'chef@example.test', password: 'passwort-123' });
+    assert.equal(chef.status, 200);
+    assert.equal(chef.body.user.role, 'admin');
+    assert.equal(chef.body.status, 'active');
+    // Es gibt jetzt einen Admin – derselbe Weg funktioniert nicht noch einmal
+    const again = await post('/api/auth/register', { name: 'Chef 2', email: 'CHEF@example.test', password: 'passwort-123' });
+    assert.equal(again.status, 400);
+    assert.equal((await post('/api/auth/login', { email: 'chef@example.test', password: 'passwort-123' })).status, 200);
+  } finally {
+    srv.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
