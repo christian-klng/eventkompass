@@ -19,8 +19,6 @@ h2{margin:0;font-size:15px;font-weight:600}
 
 /* Topbar */
 .topbar{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:0 24px;min-height:56px;background:#fff;border-bottom:1px solid var(--line)}
-.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px}
-.brand-mark{width:28px;height:28px;border-radius:8px;background:var(--accent);display:inline-block}
 .event-title{font-weight:700;font-size:17px;letter-spacing:-.01em;min-width:0}
 .title-picker{position:relative;display:inline-flex;align-items:center;gap:6px;padding:4px 8px;margin-left:-8px;border-radius:8px;cursor:pointer}
 .title-picker:hover{background:var(--line-soft)}

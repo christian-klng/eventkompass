@@ -110,7 +110,7 @@ function showAuth(mode, notice) {
   document.title = 'KPI';
   const root = $('#auth-root');
   root.hidden = false;
-  const card = el('div', { class: 'auth-card' }, el('div', { class: 'brand' }, el('span', { class: 'brand-mark', 'aria-hidden': 'true' }), 'Eventkompass'));
+  const card = el('div', { class: 'auth-card' });
   root.replaceChildren(el('div', { class: 'auth-wrap' }, card));
   ({ login: authLogin, register: authRegister, pending: authPending, password: authPassword })[mode](card, notice);
   setTimeout(() => $('input,select', card)?.focus(), 0);
