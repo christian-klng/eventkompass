@@ -71,12 +71,12 @@ thead tr{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(
 th{padding:12px;font-weight:600}th:first-child,td:first-child{padding-left:20px}th:last-child,td:last-child{padding-right:20px}
 td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .section-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
-.kpi-title{font-weight:600}
+.kr-title{font-weight:600}
 .type-chip{font-size:12px;color:#4B5563;background:var(--line-soft);padding:3px 8px;border-radius:6px;white-space:nowrap}
 .bar-row{display:flex;align-items:center;gap:8px}
 .bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden;min-width:60px}
 .bar-fill{height:100%;border-radius:3px}
-.kpi-pct{width:36px;text-align:right}
+.kr-pct{width:36px;text-align:right}
 .pill{display:inline-block;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap}
 .pill.done{background:var(--ok-bg);color:var(--ok-ink)}.pill.ok{background:var(--plan-bg);color:var(--plan-ink)}
 .pill.risk,.pill.blocked{background:var(--warn-bg);color:var(--warn-ink)}.pill.crit,.pill.late{background:var(--crit-bg);color:var(--crit-ink)}
@@ -94,6 +94,21 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .ressort-card .top{display:flex;align-items:center;gap:10px}.ressort-card .top .name{font-weight:600;font-size:15px;flex:1}
 
 .sec-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+
+/* Ziele: Karte mit Kopf, Fortschrittsbalken und Tabelle der Schlüsselergebnisse */
+.stack{display:flex;flex-direction:column;gap:16px}
+.objective{overflow:hidden}
+.obj-head{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px 24px;padding:18px 20px 12px}
+.obj-main{flex:1 1 360px;min-width:0}
+.obj-main .sec-label{margin-bottom:2px}
+.obj-head h2{font-size:17px;letter-spacing:-.01em}
+.obj-desc{color:var(--ink-2);font-size:13px;margin-top:4px;max-width:72ch}
+.obj-meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-top:8px}
+.obj-right{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.obj-pct{font-size:22px;font-weight:700;letter-spacing:-.02em}
+.obj-bar{height:4px;background:var(--line);margin:0 20px 6px;border-radius:2px;overflow:hidden}
+.obj-bar .bar-fill{height:100%;border-radius:2px}
+.objective .table-wrap{border-top:1px solid var(--line-soft)}
 
 /* Modal */
 .overlay{position:fixed;inset:0;background:rgba(17,24,39,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
@@ -212,10 +227,10 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
   .table-wrap td.empty{padding:20px 0}
   .table-wrap td.actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;white-space:normal}
   .table-wrap .actions .btn,.table-wrap .actions .icon-btn{margin-left:0}
-  /* Kennzahl-Karten: der einzelne Bearbeiten-Button sitzt rechts neben dem Titel */
+  /* Schlüsselergebnis-Karten: der einzelne Bearbeiten-Button sitzt rechts neben dem Titel */
   .table-wrap table:not(.admin-table) td:first-child{grid-column:1}
   .table-wrap table:not(.admin-table) td.actions{grid-column:2;grid-row:1;align-self:start}
-  .kpi-pct{width:auto}
+  .kr-pct{width:auto}
 }
 
 /* Responsiv – Smartphone: knappere Ränder */
@@ -224,6 +239,7 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
   .sidebar{padding:10px 12px}
   main{padding:16px 12px 40px;gap:16px}
   .stat,.ring-card,.ressort-card{padding:16px}
+  .obj-head{padding:14px 16px 10px}.obj-bar{margin:0 16px 6px}
   .section-head{padding:14px 16px}
   .table-wrap tr{padding:12px}
   .modal-head{padding:16px 16px 0}.modal-body{padding:16px}.modal-foot{padding:12px 16px}

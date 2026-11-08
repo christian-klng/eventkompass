@@ -1,4 +1,4 @@
-// API-Tests für Login, Freigabe, Rechte und Abhängigkeiten. Start: npm test
+// API-Tests für Login, Freigabe, Rechte, Ziele, Schlüsselergebnisse und Abhängigkeiten. Start: npm test
 // Jeder Test-Block bekommt ein eigenes Datenverzeichnis mit den Demo-Daten.
 
 import { test, before, after } from 'node:test';
@@ -92,9 +92,9 @@ test('Migration: Führungsressort und nur Abhängigkeiten im selben Ressort', as
   const { body } = await a('GET', '/api/state');
   const lead = body.ressorts.filter((r) => r.eventId === 'ev-summit-2027' && r.isLead);
   assert.equal(lead.length, 1);
-  assert.ok(body.kpis.every((k) => k.ressortId));
-  for (const k of body.kpis) for (const d of k.deps) assert.equal(body.kpis.find((x) => x.id === d).ressortId, k.ressortId);
-  assert.deepEqual(body.kpis.find((k) => k.id === 'k-breakeven').deps, ['k-tickets', 'k-sponsoring']);
+  assert.ok(body.keyResults.every((k) => k.ressortId));
+  for (const k of body.keyResults) for (const d of k.deps) assert.equal(body.keyResults.find((x) => x.id === d).ressortId, k.ressortId);
+  assert.deepEqual(body.keyResults.find((k) => k.id === 'k-breakeven').deps, ['k-tickets', 'k-sponsoring']);
 });
 
 test('Registrierung ohne Schalter: wartet auf Freigabe, Login gesperrt', async () => {
@@ -137,45 +137,46 @@ test('Registrierung mit aktivem Schalter: sofort aktiv, Ressort ungeprüft angel
 test('Rechte: eigenes Ressort ja, fremdes Ressort und Führung nein', async () => {
   const a = await adminClient();
   const m = await member(a, 'r-marketing');
-  assert.equal((await m('POST', '/api/kpis/k-reach/value', { value: 330000, note: 'Test' })).status, 200);
+  assert.equal((await m('POST', '/api/key-results/k-reach/value', { value: 330000, note: 'Test' })).status, 200);
   const st = await m('GET', '/api/state');
-  const h = st.body.kpis.find((k) => k.id === 'k-reach').history[0];
+  const h = st.body.keyResults.find((k) => k.id === 'k-reach').history[0];
   assert.match(h.who, /^Mitglied/);
   assert.ok(h.userId);
-  assert.equal((await m('POST', '/api/kpis/k-deck/achieve', { achieved: true })).status, 403);
-  assert.equal((await m('POST', '/api/kpis/k-tickets/value', { value: 900 })).status, 403);
-  assert.equal((await m('PUT', '/api/kpis/k-gold', { title: 'x' })).status, 403);
-  assert.equal((await m('POST', '/api/kpis', { ressortId: 'r-sponsoring', title: 'x', type: 'bool' })).status, 403);
-  assert.equal((await m('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'Podcast live', type: 'bool' })).status, 200);
-  assert.equal((await m('DELETE', '/api/kpis/k-newsletter')).status, 403);
-  assert.equal((await m('PUT', '/api/kpis/k-reach', { ressortId: 'r-programm' })).status, 403);
+  assert.equal((await m('POST', '/api/key-results/k-deck/achieve', { achieved: true })).status, 403);
+  assert.equal((await m('POST', '/api/key-results/k-tickets/value', { value: 900 })).status, 403);
+  assert.equal((await m('PUT', '/api/key-results/k-gold', { title: 'x' })).status, 403);
+  assert.equal((await m('POST', '/api/key-results', { objectiveId: 'o-partner', title: 'x', type: 'bool' })).status, 403);
+  assert.equal((await m('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Podcast live', type: 'bool' })).status, 200);
+  assert.equal((await m('DELETE', '/api/key-results/k-newsletter')).status, 403);
+  assert.equal((await m('PUT', '/api/key-results/k-reach', { objectiveId: 'o-programm' })).status, 403, 'anderes Ressort nur Admin');
   assert.equal((await m('POST', '/api/events', { name: 'x' })).status, 403);
   assert.equal((await m('POST', '/api/ressorts', { eventId: 'ev-summit-2027', name: 'x' })).status, 403);
   assert.equal((await m('GET', '/api/admin/users')).status, 403);
   assert.equal((await m('POST', '/api/reset')).status, 403);
   // Alle dürfen alles lesen, inkl. Historie
-  assert.ok(st.body.kpis.find((k) => k.id === 'k-gold').history.length > 0);
+  assert.ok(st.body.keyResults.find((k) => k.id === 'k-gold').history.length > 0);
 });
 
-test('Führungsressort pflegt Event-Kennzahlen, aber keine Ressort-Kennzahlen', async () => {
+test('Führungsressort pflegt Event-Ziele, aber keine Ressort-Ziele', async () => {
   const a = await adminClient();
   const lead = (await a('GET', '/api/state')).body.ressorts.find((r) => r.isLead).id;
   const f = await member(a, lead);
-  assert.equal((await f('POST', '/api/kpis/k-tickets/value', { value: 910 })).status, 200);
-  assert.equal((await f('POST', '/api/kpis/k-reach/value', { value: 1 })).status, 403);
+  assert.equal((await f('POST', '/api/key-results/k-tickets/value', { value: 910 })).status, 200);
+  assert.equal((await f('POST', '/api/key-results/k-reach/value', { value: 1 })).status, 403);
 });
 
 test('Abhängigkeiten nur innerhalb desselben Ressorts', async () => {
   const a = await adminClient();
-  assert.equal((await a('PUT', '/api/kpis/k-newsletter', { deps: ['k-reach'] })).status, 200);
-  assert.equal((await a('PUT', '/api/kpis/k-newsletter', { deps: ['k-deck'] })).status, 400);
-  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'x', type: 'bool', deps: ['k-tickets'] })).status, 400);
+  assert.equal((await a('PUT', '/api/key-results/k-newsletter', { deps: ['k-reach'] })).status, 200);
+  assert.equal((await a('PUT', '/api/key-results/k-newsletter', { deps: ['k-deck'] })).status, 400);
+  assert.equal((await a('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'x', type: 'bool', deps: ['k-tickets'] })).status, 400);
   // Ressortwechsel löst Abhängigkeiten in beide Richtungen
-  const moved = await a('PUT', '/api/kpis/k-reach', { ressortId: 'r-programm' });
+  const moved = await a('PUT', '/api/key-results/k-reach', { objectiveId: 'o-programm' });
   assert.equal(moved.status, 200);
   assert.deepEqual(moved.body.deps, []);
+  assert.equal(moved.body.ressortId, 'r-programm', 'Ressort folgt dem Ziel');
   const st = await a('GET', '/api/state');
-  assert.ok(!st.body.kpis.find((k) => k.id === 'k-newsletter').deps.includes('k-reach'));
+  assert.ok(!st.body.keyResults.find((k) => k.id === 'k-newsletter').deps.includes('k-reach'));
 });
 
 test('Admin-Schutz: letzter Admin bleibt, Führungsressort nicht löschbar', async () => {
@@ -208,11 +209,13 @@ test('Neues Event bekommt automatisch ein Führungsressort; Zusammenführen', as
   assert.equal(st.ressorts.filter((r) => r.eventId === ev.id && r.isLead).length, 1);
   const x = (await a('POST', '/api/ressorts', { eventId: ev.id, name: 'Presse' })).body;
   const y = (await a('POST', '/api/ressorts', { eventId: ev.id, name: 'PR' })).body;
-  await a('POST', '/api/kpis', { ressortId: x.id, title: 'Pressemitteilung', type: 'bool' });
+  const ox = (await a('POST', '/api/objectives', { ressortId: x.id, title: 'Presse erreicht' })).body;
+  await a('POST', '/api/key-results', { objectiveId: ox.id, title: 'Pressemitteilung', type: 'bool' });
   assert.equal((await a('POST', `/api/admin/ressorts/${x.id}/merge`, { intoId: y.id })).status, 200);
   st = (await a('GET', '/api/state')).body;
   assert.ok(!st.ressorts.some((r) => r.id === x.id));
-  assert.equal(st.kpis.find((k) => k.title === 'Pressemitteilung').ressortId, y.id);
+  assert.equal(st.keyResults.find((k) => k.title === 'Pressemitteilung').ressortId, y.id);
+  assert.equal(st.objectives.find((o) => o.id === ox.id).ressortId, y.id, 'Ziel wandert mit');
 });
 
 test('Login-Bremse nach zu vielen Fehlversuchen', async () => {
@@ -245,7 +248,7 @@ test('Frische Installation ohne ADMIN_PASSWORD: Registrierung mit ADMIN_EMAIL wi
   }
 });
 
-test('Migration v3: Meilenstein → Ja/Nein, Anzahl + Datum → Anzahl', async () => {
+test('Migration v3/v4: Meilenstein → Ja/Nein, Anzahl + Datum → Anzahl, kpis → Schlüsselergebnisse mit Ziel', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-test-'));
   const K = (id, type, target, current, extra = {}) => ({ id, eventId: 'e1', ressortId: 'r1', title: id, type, target, current, unit: '', deadline: null, achieved: false, achievedFlag: false, achievedAt: null, deps: [], history: [], ...extra });
   fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({
@@ -259,16 +262,20 @@ test('Migration v3: Meilenstein → Ja/Nein, Anzahl + Datum → Anzahl', async (
     ],
   }));
   const { store } = await createApp({ dataDir: dir, log: () => {} });
-  const k = (id) => store.state.kpis.find((x) => x.id === id);
+  const k = (id) => store.state.keyResults.find((x) => x.id === id);
   try {
-    assert.equal(store.state.version, 3);
+    assert.equal(store.state.version, 4);
+    assert.ok(!('kpis' in store.state));
+    assert.equal(store.state.objectives.length, 1, 'ein Start-Ziel je Ressort');
+    assert.equal(store.state.objectives[0].ressortId, 'r1');
+    assert.ok(store.state.keyResults.every((x) => x.objectiveId === store.state.objectives[0].id));
     assert.equal(k('meilenstein').type, 'bool');
     assert.equal(k('meilenstein').achievedAt, '2026-10-01');
     assert.equal(k('combo-voll').type, 'number');
     assert.equal(k('combo-voll').achieved, true);
     assert.equal(k('combo-voll').achievedAt, '2026-10-20');
     assert.equal(k('combo-offen').achieved, false);
-    assert.ok(store.state.kpis.every((x) => !('achievedFlag' in x)));
+    assert.ok(store.state.keyResults.every((x) => !('achievedFlag' in x)));
     assert.ok(store.state.ressorts.every((r) => !('lead' in r)));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -277,24 +284,24 @@ test('Migration v3: Meilenstein → Ja/Nein, Anzahl + Datum → Anzahl', async (
 
 test('Nur noch die Typen Anzahl und Ja/Nein', async () => {
   const a = await adminClient();
-  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'x', type: 'combo' })).status, 400);
-  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'x', type: 'date' })).status, 400);
+  assert.equal((await a('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'x', type: 'combo' })).status, 400);
+  assert.equal((await a('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'x', type: 'date' })).status, 400);
   const st = await a('GET', '/api/state');
-  assert.ok(st.body.kpis.every((k) => ['number', 'bool'].includes(k.type)));
+  assert.ok(st.body.keyResults.every((k) => ['number', 'bool'].includes(k.type)));
 });
 
 test('Anzahl braucht einen Zielwert > 0 und ist ohne Werte nicht erreicht', async () => {
   const a = await adminClient();
-  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'ohne Ziel', type: 'number' })).status, 400);
-  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'Ziel 0', type: 'number', target: 0 })).status, 400);
-  const k = (await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'Leads', type: 'number', target: 50 })).body;
+  assert.equal((await a('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'ohne Zielwert', type: 'number' })).status, 400);
+  assert.equal((await a('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Zielwert 0', type: 'number', target: 0 })).status, 400);
+  const k = (await a('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Leads', type: 'number', target: 50 })).body;
   assert.equal(k.achieved, false);
-  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { target: 0 })).status, 400);
-  const done = (await a('POST', `/api/kpis/${k.id}/value`, { value: 50 })).body;
+  assert.equal((await a('PUT', `/api/key-results/${k.id}`, { target: 0 })).status, 400);
+  const done = (await a('POST', `/api/key-results/${k.id}/value`, { value: 50 })).body;
   assert.equal(done.achieved, true);
   assert.ok(done.achievedAt, 'Datum beim Erreichen gesetzt');
   // Ja/Nein braucht keinen Zielwert
-  assert.equal((await a('POST', '/api/kpis', { ressortId: 'r-marketing', title: 'Go-live', type: 'bool' })).body.achieved, false);
+  assert.equal((await a('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Go-live', type: 'bool' })).body.achieved, false);
 });
 
 test('Migration: Anzahl mit Ziel 0 gilt nicht mehr als erreicht', async () => {
@@ -305,7 +312,7 @@ test('Migration: Anzahl mit Ziel 0 gilt nicht mehr als erreicht', async () => {
   }));
   const { store } = await createApp({ dataDir: dir, log: () => {} });
   try {
-    assert.equal(store.state.kpis[0].achieved, false);
+    assert.equal(store.state.keyResults[0].achieved, false);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -313,60 +320,61 @@ test('Migration: Anzahl mit Ziel 0 gilt nicht mehr als erreicht', async () => {
 
 test('Bearbeiten speichert Ist-Wert, Erreichung und Kommentar mit Historie', async () => {
   const a = await adminClient();
-  const k = (await a('POST', '/api/kpis', { ressortId: 'r-programm', title: 'Workshops', type: 'number', target: 10 })).body;
-  let r = await a('PUT', `/api/kpis/${k.id}`, { current: 10, achievedAt: '2026-10-30', note: 'Alle geplant' });
+  const k = (await a('POST', '/api/key-results', { objectiveId: 'o-programm', title: 'Workshops', type: 'number', target: 10 })).body;
+  let r = await a('PUT', `/api/key-results/${k.id}`, { current: 10, achievedAt: '2026-10-30', note: 'Alle geplant' });
   assert.equal(r.body.achieved, true);
   assert.equal(r.body.achievedAt, '2026-10-30');
   assert.equal(r.body.history[0].kind, 'Wert aktualisiert');
   assert.equal(r.body.history[0].note, 'Alle geplant');
-  r = await a('PUT', `/api/kpis/${k.id}`, { note: 'Nur ein Kommentar' });
+  r = await a('PUT', `/api/key-results/${k.id}`, { note: 'Nur ein Kommentar' });
   assert.equal(r.body.history[0].kind, 'Kommentar');
-  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { current: 'abc' })).status, 400);
-  const b = (await a('POST', '/api/kpis', { ressortId: 'r-programm', title: 'Agenda online', type: 'bool' })).body;
-  r = await a('PUT', `/api/kpis/${b.id}`, { achieved: true, achievedAt: '2026-10-31' });
+  assert.equal((await a('PUT', `/api/key-results/${k.id}`, { current: 'abc' })).status, 400);
+  const b = (await a('POST', '/api/key-results', { objectiveId: 'o-programm', title: 'Agenda online', type: 'bool' })).body;
+  r = await a('PUT', `/api/key-results/${b.id}`, { achieved: true, achievedAt: '2026-10-31' });
   assert.equal(r.body.achieved, true);
   assert.equal(r.body.achievedAt, '2026-10-31');
   assert.equal(r.body.history[0].kind, 'Erreichung eingetragen');
-  r = await a('PUT', `/api/kpis/${b.id}`, { achieved: false });
+  r = await a('PUT', `/api/key-results/${b.id}`, { achieved: false });
   assert.equal(r.body.achievedAt, null);
   // Abgelehnte Anfrage ändert nichts
-  const before = (await a('GET', '/api/state')).body.kpis.find((x) => x.id === k.id);
-  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { title: 'Neu', target: 0 })).status, 400);
-  assert.equal((await a('GET', '/api/state')).body.kpis.find((x) => x.id === k.id).title, before.title);
+  const before = (await a('GET', '/api/state')).body.keyResults.find((x) => x.id === k.id);
+  assert.equal((await a('PUT', `/api/key-results/${k.id}`, { title: 'Neu', target: 0 })).status, 400);
+  assert.equal((await a('GET', '/api/state')).body.keyResults.find((x) => x.id === k.id).title, before.title);
 });
 
 test('Löschen archiviert nur; Admins stellen wieder her', async () => {
   const a = await adminClient();
-  const k = (await a('POST', '/api/kpis', { ressortId: 'r-technik', title: 'WLAN getestet', type: 'bool', deps: ['k-location'] })).body;
+  const k = (await a('POST', '/api/key-results', { objectiveId: 'o-infrastruktur', title: 'WLAN getestet', type: 'bool', deps: ['k-location'] })).body;
   const m = await member(a, 'r-technik');
-  assert.equal((await m('DELETE', `/api/kpis/${k.id}`)).status, 403, 'Mitglieder archivieren nicht');
-  const arch = await a('DELETE', `/api/kpis/${k.id}`);
+  assert.equal((await m('DELETE', `/api/key-results/${k.id}`)).status, 403, 'Mitglieder archivieren nicht');
+  const arch = await a('DELETE', `/api/key-results/${k.id}`);
   assert.equal(arch.status, 200);
   assert.ok(arch.body.archivedAt);
   assert.equal(arch.body.history[0].kind, 'Archiviert');
   let st = (await a('GET', '/api/state')).body;
-  assert.ok(st.kpis.some((x) => x.id === k.id), 'bleibt in den Daten');
-  assert.equal((await a('PUT', `/api/kpis/${k.id}`, { title: 'x' })).status, 400, 'archiviert = nicht bearbeitbar');
-  assert.equal((await m('POST', `/api/kpis/${k.id}/value`, { value: 1 })).status, 400);
-  assert.equal((await a('PUT', '/api/kpis/k-stream', { deps: ['k-location', k.id] })).status, 400, 'nicht neu als Voraussetzung wählbar');
-  assert.equal((await m('POST', `/api/kpis/${k.id}/restore`)).status, 403);
-  const back = await a('POST', `/api/kpis/${k.id}/restore`);
+  assert.ok(st.keyResults.some((x) => x.id === k.id), 'bleibt in den Daten');
+  assert.equal((await a('PUT', `/api/key-results/${k.id}`, { title: 'x' })).status, 400, 'archiviert = nicht bearbeitbar');
+  assert.equal((await m('POST', `/api/key-results/${k.id}/value`, { value: 1 })).status, 400);
+  assert.equal((await a('PUT', '/api/key-results/k-stream', { deps: ['k-location', k.id] })).status, 400, 'nicht neu als Voraussetzung wählbar');
+  assert.equal((await m('POST', `/api/key-results/${k.id}/restore`)).status, 403);
+  const back = await a('POST', `/api/key-results/${k.id}/restore`);
   assert.equal(back.body.archivedAt, null);
   assert.equal(back.body.history[0].kind, 'Wiederhergestellt');
   assert.deepEqual(back.body.deps, ['k-location'], 'Abhängigkeiten bleiben erhalten');
 });
 
-test('Ressorts und Events mit Kennzahlen (auch archivierten) lassen sich nicht löschen', async () => {
+test('Ressorts und Events mit Zielen/Schlüsselergebnissen (auch archivierten) lassen sich nicht löschen', async () => {
   const a = await adminClient();
   const ev = (await a('POST', '/api/events', { name: 'Löschtest' })).body;
   const r = (await a('POST', '/api/ressorts', { eventId: ev.id, name: 'Weg damit' })).body;
-  const k = (await a('POST', '/api/kpis', { ressortId: r.id, title: 'Rest', type: 'bool' })).body;
-  await a('DELETE', `/api/kpis/${k.id}`); // archiviert
+  const o = (await a('POST', '/api/objectives', { ressortId: r.id, title: 'Restziel' })).body;
+  const k = (await a('POST', '/api/key-results', { objectiveId: o.id, title: 'Rest', type: 'bool' })).body;
+  await a('DELETE', `/api/key-results/${k.id}`); // archiviert
   assert.equal((await a('DELETE', `/api/ressorts/${r.id}`)).status, 400);
   assert.equal((await a('DELETE', `/api/events/${ev.id}`)).status, 400);
   const lead = (await a('GET', '/api/state')).body.ressorts.find((x) => x.eventId === ev.id && x.isLead);
   await a('POST', `/api/admin/ressorts/${r.id}/merge`, { intoId: lead.id });
-  assert.equal((await a('GET', '/api/state')).body.kpis.find((x) => x.id === k.id).ressortId, lead.id, 'Zusammenführen nimmt archivierte mit');
+  assert.equal((await a('GET', '/api/state')).body.keyResults.find((x) => x.id === k.id).ressortId, lead.id, 'Zusammenführen nimmt archivierte mit');
   const leer = (await a('POST', '/api/ressorts', { eventId: ev.id, name: 'Leer' })).body;
   assert.equal((await a('DELETE', `/api/ressorts/${leer.id}`)).status, 200);
   const ev2 = (await a('POST', '/api/events', { name: 'Leeres Event' })).body;
@@ -410,4 +418,85 @@ test('Einladungen: eingeladene E-Mail ist nach der Registrierung sofort aktiv', 
   assert.equal((await a('DELETE', `/api/admin/invites/${weg.id}`)).status, 200);
   const r3 = await client()('POST', '/api/auth/register', { name: 'Weg', email: 'weg@example.test', password: 'passwort-123', eventId: 'ev-summit-2027', ressortId: 'r-marketing' });
   assert.equal(r3.body.status, 'pending');
+});
+
+test('Ziele: Rechte, Ressortwechsel nimmt Schlüsselergebnisse mit, Archiv nur ohne aktive Schlüsselergebnisse', async () => {
+  const a = await adminClient();
+  const m = await member(a, 'r-marketing');
+  assert.equal((await m('POST', '/api/objectives', { ressortId: 'r-programm', title: 'fremd' })).status, 403);
+  assert.equal((await m('POST', '/api/objectives', { ressortId: 'r-marketing', title: '' })).status, 400);
+  const o = (await m('POST', '/api/objectives', { ressortId: 'r-marketing', title: 'Community wächst', deadline: '2027-01-31' })).body;
+  assert.equal(o.ressortId, 'r-marketing');
+  assert.equal((await m('PUT', '/api/objectives/o-programm', { title: 'x' })).status, 403);
+  assert.equal((await m('PUT', `/api/objectives/${o.id}`, { ressortId: 'r-programm' })).status, 403, 'Ressort wechselt nur Admin');
+  assert.equal((await m('PUT', `/api/objectives/${o.id}`, { description: 'Mehr Mitglieder im Forum' })).status, 200);
+  // Schlüsselergebnis im neuen Ziel, abhängig von einem aus einem anderen Ziel desselben Ressorts
+  const k = (await m('POST', '/api/key-results', { objectiveId: o.id, title: 'Forum-Mitglieder', type: 'number', target: 500, deps: ['k-newsletter'] })).body;
+  assert.equal(k.ressortId, 'r-marketing');
+  assert.deepEqual(k.deps, ['k-newsletter']);
+  // Admin verschiebt das Ziel in ein anderes Ressort: Schlüsselergebnis folgt, Abhängigkeit ins alte Ressort fällt weg
+  assert.equal((await m('DELETE', `/api/objectives/${o.id}`)).status, 403);
+  assert.equal((await a('DELETE', `/api/objectives/${o.id}`)).status, 400, 'noch aktive Schlüsselergebnisse');
+  const moved = await a('PUT', `/api/objectives/${o.id}`, { ressortId: 'r-programm' });
+  assert.equal(moved.status, 200);
+  let st = (await a('GET', '/api/state')).body;
+  const kk = st.keyResults.find((x) => x.id === k.id);
+  assert.equal(kk.ressortId, 'r-programm');
+  assert.deepEqual(kk.deps, []);
+  assert.equal((await m('PUT', `/api/key-results/${k.id}`, { current: 10 })).status, 403, 'gehört jetzt Programm');
+  // Archivieren erst ohne aktive Schlüsselergebnisse; Wiederherstellen des Schlüsselergebnisses erst nach dem Ziel
+  await a('DELETE', `/api/key-results/${k.id}`);
+  const arch = await a('DELETE', `/api/objectives/${o.id}`);
+  assert.equal(arch.status, 200);
+  assert.ok(arch.body.archivedAt);
+  assert.equal((await a('POST', '/api/key-results', { objectiveId: o.id, title: 'x', type: 'bool' })).status, 400, 'archiviertes Ziel');
+  assert.equal((await a('POST', `/api/key-results/${k.id}/restore`)).status, 400, 'Ziel zuerst');
+  assert.equal((await a('POST', `/api/objectives/${o.id}/restore`)).body.archivedAt, null);
+  assert.equal((await a('POST', `/api/key-results/${k.id}/restore`)).body.archivedAt, null);
+  st = (await a('GET', '/api/state')).body;
+  assert.ok(st.objectives.some((x) => x.id === o.id && !x.archivedAt));
+});
+
+test('Schlüsselergebnis wechselt das Ziel: im eigenen Ressort jeder, mit Ressortwechsel nur Admin', async () => {
+  const a = await adminClient();
+  const m = await member(a, 'r-programm');
+  const o2 = (await m('POST', '/api/objectives', { ressortId: 'r-programm', title: 'Workshops begeistern' })).body;
+  const r = await m('PUT', '/api/key-results/k-keynote', { objectiveId: o2.id });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.objectiveId, o2.id);
+  assert.equal(r.body.ressortId, 'r-programm');
+  assert.equal(r.body.history[0].kind, 'Stammdaten geändert');
+  assert.match(r.body.history[0].to, /^Ziel /);
+  assert.equal((await m('PUT', '/api/key-results/k-keynote', { objectiveId: 'o-reichweite' })).status, 403);
+  assert.equal((await a('PUT', '/api/key-results/k-keynote', { objectiveId: 'gibt-es-nicht' })).status, 400);
+  // Zurück ins ursprüngliche Ziel, Abhängigkeiten innerhalb des Ressorts bleiben erhalten
+  const back = await m('PUT', '/api/key-results/k-speaker', { objectiveId: o2.id });
+  assert.deepEqual(back.body.deps, ['k-cfp']);
+});
+
+test('Migration v4 an einem v3-Stand: ein Start-Ziel je Ressort, zweiter Lauf legt nichts Neues an', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-test-'));
+  const K = (id, ressortId) => ({ id, eventId: 'e1', ressortId, title: id, type: 'bool', target: 1, current: 0, achieved: false, achievedAt: null, deps: [], history: [] });
+  fs.writeFileSync(path.join(dir, 'data.json'), JSON.stringify({
+    version: 3,
+    events: [{ id: 'e1', name: 'Alt' }],
+    ressorts: [{ id: 'r1', eventId: 'e1', name: 'Team A', color: '#000', isLead: true }, { id: 'r2', eventId: 'e1', name: 'Team B', color: '#000' }],
+    kpis: [K('a1', 'r1'), K('a2', 'r1'), K('b1', 'r2')],
+    users: [], sessions: [], invites: [], settings: {},
+  }));
+  const first = await createApp({ dataDir: dir, log: () => {} });
+  try {
+    const s = first.store.state;
+    assert.equal(s.version, 4);
+    assert.equal(s.objectives.length, 2);
+    const oA = s.objectives.find((o) => o.ressortId === 'r1'), oB = s.objectives.find((o) => o.ressortId === 'r2');
+    assert.equal(oA.title, 'Team A');
+    assert.deepEqual(s.keyResults.filter((k) => k.objectiveId === oA.id).map((k) => k.id), ['a1', 'a2']);
+    assert.deepEqual(s.keyResults.filter((k) => k.objectiveId === oB.id).map((k) => k.id), ['b1']);
+    const second = await createApp({ dataDir: dir, log: () => {} });
+    assert.equal(second.store.state.objectives.length, 2, 'idempotent');
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'data.json'), 'utf8')).kpis, undefined);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

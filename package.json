@@ -1,7 +1,7 @@
 {
   "name": "okr-event-tracker",
-  "version": "0.2.0",
-  "description": "OKR-/Kennzahlen-Tracker für Events und Ressorts – erste lokale Version",
+  "version": "0.3.0",
+  "description": "OKR-Tracker für Events und Ressorts: Ziele und Schlüsselergebnisse",
   "private": true,
   "type": "module",
   "main": "server.js",

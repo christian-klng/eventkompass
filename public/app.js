@@ -14,10 +14,11 @@ const el = (tag, attrs = {}, ...children) => {
   return n;
 };
 
-const state = { me: null, data: { events: [], ressorts: [], kpis: [] }, users: [], invites: [], eventId: null, view: 'overview', ressortId: null, adminTab: 'users', userFilter: 'all' };
+const state = { me: null, data: { events: [], ressorts: [], objectives: [], keyResults: [] }, users: [], invites: [], eventId: null, view: 'overview', ressortId: null, adminTab: 'users', userFilter: 'all' };
 const TYPE_LABEL = { number: 'Anzahl', bool: 'Ja / Nein' };
 const PALETTE = ['#2563EB', '#7C3AED', '#DB2777', '#0F766E', '#B45309', '#0891B2', '#65A30D', '#9333EA', '#DC2626', '#4B5563'];
 const MIN_PASSWORD = 10;
+const APP_TITLE = 'Eventkompass';
 
 // ---------- API ----------
 async function api(method, url, body) {
@@ -56,7 +57,8 @@ const de = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('.') : '�
 const deTime = (iso) => { const d = new Date(iso); return d.toLocaleDateString('de-DE') + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); };
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const isNum = (k) => k.type === 'number';
-const byId = (id) => state.data.kpis.find((k) => k.id === id);
+const byId = (id) => state.data.keyResults.find((k) => k.id === id);
+const objective = (id) => state.data.objectives.find((o) => o.id === id);
 const ressort = (id) => state.data.ressorts.find((r) => r.id === id);
 const eventById = (id) => state.data.events.find((e) => e.id === id);
 const curEvent = () => eventById(state.eventId);
@@ -64,19 +66,25 @@ const curEvent = () => eventById(state.eventId);
 const ressortsOf = (eventId) => state.data.ressorts.filter((r) => r.eventId === eventId).sort((a, b) => b.isLead - a.isLead);
 const evRessorts = () => ressortsOf(state.eventId);
 const leadRessort = () => evRessorts().find((r) => r.isLead);
-// Archivierte Kennzahlen tauchen nur im Archiv des Ressorts auf (für Admins)
-const kpiCount = (fn) => state.data.kpis.filter(fn).length; // inkl. archivierter
-const activeKpis = () => state.data.kpis.filter((k) => !k.archivedAt);
-const evKpis = () => activeKpis().filter((k) => k.eventId === state.eventId);
+// Archivierte Ziele und Schlüsselergebnisse tauchen nur im Archiv des Ressorts auf (für Admins)
+const activeObjectives = () => state.data.objectives.filter((o) => !o.archivedAt);
+const evObjectives = () => activeObjectives().filter((o) => o.eventId === state.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+const objectivesOf = (ressortId) => evObjectives().filter((o) => o.ressortId === ressortId);
+const activeKrs = () => state.data.keyResults.filter((k) => !k.archivedAt);
+const evKrs = () => activeKrs().filter((k) => k.eventId === state.eventId);
+const krsOf = (o) => evKrs().filter((k) => k.objectiveId === o.id);
 const owner = (k) => ressort(k.ressortId)?.name || 'Ressort';
 const pct = (k) => (k.achieved ? 100 : isNum(k) && k.target > 0 ? Math.min(100, Math.round((k.current / k.target) * 100)) : 0);
+const avgPct = (ks) => (ks.length ? Math.round(ks.reduce((a, k) => a + pct(k), 0) / ks.length) : 0);
 const valueLabel = (k) => (isNum(k) ? fmt(k.current) + (k.unit ? ' ' + k.unit : '') : k.achieved ? 'Erreicht' : 'Offen');
 const targetLabel = (k) => (isNum(k) ? fmt(k.target) + (k.unit ? ' ' + k.unit : '') : 'bis ' + de(k.deadline));
 const openDeps = (k) => k.deps.map(byId).filter((d) => d && !d.archivedAt && !d.achieved);
+const atRisk = (k) => ['risk', 'crit', 'late'].includes(status(k).key);
 // Rechte – maßgeblich ist der Server, hier wird nur ein- und ausgeblendet.
 const isAdmin = () => state.me?.role === 'admin';
 const canEditRessort = (rid) => isAdmin() || (!!state.me?.ressortId && state.me.ressortId === rid);
-const canEditKpi = (k) => canEditRessort(k.ressortId);
+const canEditKr = (k) => canEditRessort(k.ressortId);
+const canEditObjective = (o) => canEditRessort(o.ressortId);
 function status(k) {
   if (k.achieved) return { key: 'done', label: 'Erreicht', color: 'var(--ok)' };
   if (k.deadline && k.deadline < todayIso()) return { key: 'late', label: 'Überfällig', color: 'var(--crit)' };
@@ -89,10 +97,24 @@ function status(k) {
   }
   return { key: 'open', label: 'Offen', color: '#9CA3AF' };
 }
+// Ein Ziel ist erreicht, wenn alle seine Schlüsselergebnisse erreicht sind; sein Fortschritt ist deren Durchschnitt.
+const objAchieved = (o, ks = krsOf(o)) => ks.length > 0 && ks.every((k) => k.achieved);
+function objStatus(o) {
+  const ks = krsOf(o);
+  if (!ks.length) return { key: 'open', label: 'Noch ohne Schlüsselergebnisse', color: '#9CA3AF' };
+  if (objAchieved(o, ks)) return { key: 'done', label: 'Erreicht', color: 'var(--ok)' };
+  if (o.deadline && o.deadline < todayIso()) return { key: 'late', label: 'Überfällig', color: 'var(--crit)' };
+  if (ks.some((k) => status(k).key === 'late')) return { key: 'late', label: 'Schlüsselergebnis überfällig', color: 'var(--crit)' };
+  const p = avgPct(ks);
+  if (p >= 70) return { key: 'ok', label: 'Im Plan', color: 'var(--plan)' };
+  if (p >= 40) return { key: 'risk', label: 'Gefährdet', color: 'var(--warn)' };
+  return { key: 'crit', label: 'Kritisch', color: 'var(--crit)' };
+}
 // Wie Element.append, überspringt aber null/false (bedingte Kinder)
 const append = (parent, ...children) => parent.append(...children.flat().filter((c) => c !== null && c !== undefined && c !== false));
 const dot = (color, sm) => el('span', { class: 'dot' + (sm ? ' sm' : ''), style: 'background:' + color });
 const pill = (s) => el('span', { class: 'pill ' + s.key }, s.label);
+const plural = (n, one, many) => `${fmt(n)} ${n === 1 ? one : many}`;
 
 // ---------- Anmeldung & Registrierung ----------
 function startApp(user) {
@@ -107,7 +129,7 @@ function startApp(user) {
 function showAuth(mode, notice) {
   $('#app').hidden = true;
   $('#modal-root').replaceChildren();
-  document.title = 'KPI';
+  document.title = APP_TITLE;
   const root = $('#auth-root');
   root.hidden = false;
   const card = el('div', { class: 'auth-card' });
@@ -167,7 +189,7 @@ async function authRegister(card, inviteId) {
   const newField = field('Neues Ressort', newName, invite ? 'Wird direkt angelegt; ein Admin prüft den Namen später.' : 'Ein Admin prüft den Namen und legt das Ressort an bzw. ordnet dich zu.');
   const syncRessorts = () => {
     const rs = opts.ressorts.filter((r) => r.eventId === evSel.value).sort((a, b) => b.isLead - a.isLead);
-    rSel.replaceChildren(el('option', { value: '' }, 'Bitte wählen …'), ...rs.map((r) => el('option', { value: r.id }, r.name + (r.isLead ? ' (Event-Kennzahlen)' : ''))), el('option', { value: '__new' }, 'Mein Ressort fehlt …'));
+    rSel.replaceChildren(el('option', { value: '' }, 'Bitte wählen …'), ...rs.map((r) => el('option', { value: r.id }, r.name + (r.isLead ? ' (Event-Ziele)' : ''))), el('option', { value: '__new' }, 'Mein Ressort fehlt …'));
     rSel.disabled = !evSel.value;
     syncNew();
   };
@@ -243,7 +265,7 @@ function labelTables(root) {
 
 function renderTopbar() {
   const ev = curEvent(); const events = state.data.events;
-  document.title = ev ? ev.name + ' – KPI' : 'KPI';
+  document.title = ev ? ev.name + ' – ' + APP_TITLE : APP_TITLE;
   // Titel oben links ist das Event; bei mehreren Events zugleich die Auswahl.
   // Die Auswahl liegt unsichtbar über dem Namen – so passt die Breite immer zum Titel.
   $('#event-title').replaceChildren(events.length > 1
@@ -275,73 +297,100 @@ function renderSidebar() {
   const rs = evRessorts();
   $('#ressort-count').textContent = rs.length;
   $('#nav-ressorts').replaceChildren(...rs.map((r) => {
-    const ks = evKpis().filter((k) => k.ressortId === r.id);
+    const os = objectivesOf(r.id);
     return el('button', { class: 'nav' + (state.view === 'ressort' && state.ressortId === r.id ? ' active' : ''), onClick: () => go('ressort', r.id) },
       dot(r.color), el('span', { class: 'grow' }, r.name), r.id === state.me.ressortId ? el('span', { class: 'mine', title: 'Dein Ressort' }, 'deins') : null,
-      el('span', { class: 'muted small num' }, ks.filter((k) => k.achieved).length + '/' + ks.length));
+      el('span', { class: 'muted small num', title: 'Ziele erreicht / gesamt' }, os.filter((o) => objAchieved(o)).length + '/' + os.length));
   }));
-  const ks = evKpis(); const ev = curEvent();
+  const ks = evKrs(); const ev = curEvent();
   const days = ev?.startDate ? Math.ceil((new Date(ev.startDate) - new Date()) / 86400000) : null;
   $('#side-note').replaceChildren(
     el('strong', {}, days !== null ? (days >= 0 ? `Noch ${days} Tage` : `Vor ${-days} Tagen`) : 'Kein Datum'),
-    ev ? `${ev.name}: ${ks.filter((k) => !k.achieved).length} Kennzahlen offen, ${ks.filter((k) => !k.achieved && openDeps(k).length).length} warten auf Abhängigkeiten.` : ''
+    ev ? `${ev.name}: ${plural(evObjectives().length, 'Ziel', 'Ziele')}, ${ks.filter((k) => !k.achieved).length} Schlüsselergebnisse offen, ${ks.filter((k) => !k.achieved && openDeps(k).length).length} warten auf Abhängigkeiten.` : ''
   );
 }
 
 function go(view, ressortId = null) { state.view = view; state.ressortId = ressortId; render(); }
 
-function kpiTable(kpis, opts = {}) {
+// Tabelle der Schlüsselergebnisse eines Ziels
+function krTable(krs, opts = {}) {
   const table = el('table', {},
-    el('thead', {}, el('tr', {}, ...['Kennzahl', 'Typ', 'Ziel', 'Ist', 'Fortschritt', 'Status', 'Frist / erreicht', 'Abhängig von', ''].map((h) => el('th', {}, h)))),
+    el('thead', {}, el('tr', {}, ...['Schlüsselergebnis', 'Typ', 'Zielwert', 'Ist', 'Fortschritt', 'Status', 'Frist / erreicht', 'Abhängig von', ''].map((h) => el('th', {}, h)))),
     el('tbody'));
   const tb = $('tbody', table);
-  if (!kpis.length) tb.append(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, opts.empty || 'Noch keine Kennzahlen.')));
-  for (const k of kpis) {
-    const row = $('#tpl-kpi-row').content.firstElementChild.cloneNode(true);
+  if (!krs.length) tb.append(el('tr', {}, el('td', { colspan: 9, class: 'empty' }, opts.empty || 'Noch keine Schlüsselergebnisse.')));
+  for (const k of krs) {
+    const row = $('#tpl-kr-row').content.firstElementChild.cloneNode(true);
     const s = status(k);
-    $('.kpi-title', row).textContent = k.title;
-    $('.kpi-sub', row).textContent = (opts.showOwner ? owner(k) + ' · ' : '') + (k.history[0] ? 'Zuletzt ' + deTime(k.history[0].at) + ' von ' + k.history[0].who : 'keine Änderung');
+    $('.kr-title', row).textContent = k.title;
+    $('.kr-sub', row).textContent = (opts.showOwner ? owner(k) + ' · ' : '') + (k.history[0] ? 'Zuletzt ' + deTime(k.history[0].at) + ' von ' + k.history[0].who : 'keine Änderung');
     $('.type-chip', row).textContent = TYPE_LABEL[k.type];
-    $('.kpi-target', row).textContent = targetLabel(k);
-    $('.kpi-current', row).textContent = valueLabel(k);
+    $('.kr-target', row).textContent = targetLabel(k);
+    $('.kr-current', row).textContent = valueLabel(k);
     $('.bar-fill', row).style.cssText = `width:${pct(k)}%;background:${s.color}`;
-    $('.kpi-pct', row).textContent = isNum(k) || k.achieved ? pct(k) + '%' : '–';
-    $('.kpi-status', row).replaceWith(pill(s));
-    $('.kpi-dates', row).replaceChildren(el('div', {}, de(k.deadline)), el('div', { class: 'small', style: 'color:' + (k.achieved ? 'var(--ok-ink)' : 'var(--muted)') }, k.achieved ? 'erreicht am ' + de(k.achievedAt) : 'noch nicht erreicht'));
+    $('.kr-pct', row).textContent = isNum(k) || k.achieved ? pct(k) + '%' : '–';
+    $('.kr-status', row).replaceWith(pill(s));
+    $('.kr-dates', row).replaceChildren(el('div', {}, de(k.deadline)), el('div', { class: 'small', style: 'color:' + (k.achieved ? 'var(--ok-ink)' : 'var(--muted)') }, k.achieved ? 'erreicht am ' + de(k.achievedAt) : 'noch nicht erreicht'));
     const deps = k.deps.map(byId).filter((d) => d && !d.archivedAt);
-    $('.kpi-deps', row).replaceChildren(...(deps.length ? deps.map((d) => el('span', { class: 'chip ' + (d.achieved ? 'done' : 'open'), title: d.title }, d.title.length > 24 ? d.title.slice(0, 23) + '…' : d.title)) : [el('span', { class: 'muted small' }, '–')]));
-    // Ein Button je Zeile: eigene Kennzahlen bearbeiten, fremde nur ansehen (inkl. Historie)
+    $('.kr-deps', row).replaceChildren(...(deps.length ? deps.map((d) => el('span', { class: 'chip ' + (d.achieved ? 'done' : 'open'), title: d.title }, d.title.length > 24 ? d.title.slice(0, 23) + '…' : d.title)) : [el('span', { class: 'muted small' }, '–')]));
+    // Ein Button je Zeile: eigene Schlüsselergebnisse bearbeiten, fremde nur ansehen (inkl. Historie)
     const btn = $('.act-open', row);
-    const label = canEditKpi(k) ? 'Bearbeiten' : 'Historie ansehen';
-    btn.textContent = canEditKpi(k) ? '✎' : '⟲';
+    const label = canEditKr(k) ? 'Bearbeiten' : 'Historie ansehen';
+    btn.textContent = canEditKr(k) ? '✎' : '⟲';
     btn.title = label; btn.setAttribute('aria-label', label);
-    btn.addEventListener('click', () => (canEditKpi(k) ? modalKpiForm(k) : modalHistory(k)));
+    btn.addEventListener('click', () => (canEditKr(k) ? modalKrForm(k) : modalHistory(k)));
     tb.append(row);
   }
   return el('div', { class: 'table-wrap' }, table);
 }
 
+// Ein Ziel als Karte: Kopf mit Fortschritt und Status, darunter seine Schlüsselergebnisse.
+function objectiveBlock(o, opts = {}) {
+  const ks = krsOf(o);
+  const s = objStatus(o);
+  const p = avgPct(ks);
+  const editable = canEditObjective(o);
+  const r = ressort(o.ressortId);
+  return el('section', { class: 'card objective' },
+    el('div', { class: 'obj-head' },
+      el('div', { class: 'obj-main' },
+        el('div', { class: 'sec-label' }, 'Ziel'),
+        el('h2', {}, o.title),
+        o.description ? el('div', { class: 'obj-desc' }, o.description) : null,
+        el('div', { class: 'obj-meta' },
+          opts.showOwner && r ? el('span', { class: 'with-dot' }, dot(r.color, true), r.name) : null,
+          el('span', {}, `${ks.filter((k) => k.achieved).length} von ${plural(ks.length, 'Schlüsselergebnis', 'Schlüsselergebnissen')} erreicht`),
+          o.deadline ? el('span', {}, 'Frist ' + de(o.deadline)) : null)),
+      el('div', { class: 'obj-right' },
+        el('span', { class: 'obj-pct num' }, p + '%'), pill(s),
+        editable ? el('button', { class: 'btn ghost small-btn', onClick: () => modalObjectiveForm(o) }, 'Ziel bearbeiten') : null,
+        editable ? el('button', { class: 'btn small-btn', onClick: () => modalKrForm(null, o) }, '+ Schlüsselergebnis') : null)),
+    el('div', { class: 'obj-bar' }, el('div', { class: 'bar-fill', style: `width:${p}%;background:${s.color}` })),
+    krTable(ks, { empty: editable ? 'Noch keine Schlüsselergebnisse – mit „+ Schlüsselergebnis“ anlegen.' : 'Noch keine Schlüsselergebnisse.' }));
+}
+
 function renderOverview(main) {
-  const ev = curEvent(); const ks = evKpis(); const lead = leadRessort();
+  const ev = curEvent(); const ks = evKrs(); const lead = leadRessort();
+  const os = evObjectives();
   const rs = evRessorts().filter((r) => !r.isLead);
   const done = ks.filter((k) => k.achieved).length;
-  const stats = ks.map(status);
-  const total = ks.length ? Math.round(ks.reduce((a, k) => a + pct(k), 0) / ks.length) : 0;
+  const total = avgPct(ks);
   const circ = 2 * Math.PI * 28;
-  const leadKs = lead ? ks.filter((k) => k.ressortId === lead.id) : [];
-  main.append(
+  const leadOs = lead ? objectivesOf(lead.id) : [];
+  append(main,
     el('div', { class: 'head-row' },
       el('div', {}, el('div', { class: 'muted small strong' }, 'Event · ' + ev.name), el('h1', {}, 'Zielerreichung gesamt')),
-      lead && canEditRessort(lead.id) ? el('div', { style: 'display:flex;gap:8px' }, el('button', { class: 'btn', onClick: () => modalKpiForm(null, lead.id) }, '+ Event-Kennzahl')) : null),
-    el('div', { class: 'grid grid-3' },
+      lead && canEditRessort(lead.id) ? el('div', { style: 'display:flex;gap:8px' }, el('button', { class: 'btn', onClick: () => modalObjectiveForm(null, lead.id) }, '+ Event-Ziel')) : null),
+    el('div', { class: 'grid grid-4' },
       el('div', { class: 'card ring-card' },
         svgEl(`<svg width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="Gesamtfortschritt ${total} Prozent"><circle cx="36" cy="36" r="28" fill="none" stroke="#E5E7EB" stroke-width="8"/><circle cx="36" cy="36" r="28" fill="none" stroke="#4F46E5" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(total / 100) * circ} ${circ}" transform="rotate(-90 36 36)"/><text x="36" y="41" text-anchor="middle" font-size="15" font-weight="700" fill="#111827" font-family="Inter,sans-serif">${total}%</text></svg>`),
-        el('div', {}, el('div', { class: 'muted small' }, 'Gesamt'), el('div', { class: 'strong', style: 'font-size:13px' }, `${done} von ${ks.length} erreicht`))),
-      stat('Erreicht', done, `von ${ks.length} Kennzahlen`, 'var(--ok)'),
-      stat('Gefährdet / überfällig', stats.filter((s) => ['risk', 'crit', 'late'].includes(s.key)).length, 'braucht Aufmerksamkeit', 'var(--warn)')),
-    el('section', { class: 'card' },
-      el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, 'Event-Kennzahlen'), el('div', { class: 'muted small' }, lead ? `Übergeordnete Ziele – gepflegt vom Ressort „${lead.name}“` : 'Übergeordnete Ziele'))),
-      kpiTable(leadKs, { empty: 'Noch keine Event-Kennzahlen.' })),
+        el('div', {}, el('div', { class: 'muted small' }, 'Gesamt'), el('div', { class: 'strong', style: 'font-size:13px' }, `${done} von ${ks.length} Schlüsselergebnissen`))),
+      stat('Ziele', os.length, `${os.filter((o) => objAchieved(o)).length} erreicht`, 'var(--accent)'),
+      stat('Schlüsselergebnisse erreicht', done, `von ${ks.length}`, 'var(--ok)'),
+      stat('Gefährdet / überfällig', ks.filter(atRisk).length, 'Schlüsselergebnisse brauchen Aufmerksamkeit', 'var(--warn)')),
+    el('section', {},
+      el('div', { class: 'head-row', style: 'margin-bottom:12px' }, el('div', {}, el('h2', {}, 'Event-Ziele'), el('div', { class: 'muted small' }, lead ? `Übergeordnete Ziele des Events – gepflegt vom Ressort „${lead.name}“` : 'Übergeordnete Ziele des Events'))),
+      el('div', { class: 'stack' }, ...leadOs.map(objectiveBlock), !leadOs.length && el('div', { class: 'card empty' }, 'Noch keine Event-Ziele.'))),
     el('section', {},
       el('div', { class: 'head-row', style: 'margin-bottom:12px' }, el('h2', {}, 'Ressorts'), isAdmin() ? el('button', { class: 'btn ghost small-btn', onClick: () => modalRessortForm(null) }, '+ Ressort') : null),
       el('div', { class: 'grid grid-3' }, ...rs.map(ressortCard), !rs.length && el('div', { class: 'card empty' }, 'Noch keine Ressorts.')))
@@ -352,19 +401,20 @@ function stat(label, value, hint, color) {
 }
 function svgEl(str) { const t = document.createElement('template'); t.innerHTML = str.trim(); return t.content.firstElementChild; }
 function ressortCard(r) {
-  const ks = evKpis().filter((k) => k.ressortId === r.id);
-  const done = ks.filter((k) => k.achieved).length;
-  const p = ks.length ? Math.round(ks.reduce((a, k) => a + pct(k), 0) / ks.length) : 0;
-  const risky = ks.filter((k) => ['risk', 'crit', 'late'].includes(status(k).key)).length;
+  const os = objectivesOf(r.id);
+  const ks = evKrs().filter((k) => k.ressortId === r.id);
+  const done = os.filter((o) => objAchieved(o)).length;
+  const p = avgPct(ks);
+  const risky = ks.filter(atRisk).length;
   const blocked = ks.filter((k) => !k.achieved && openDeps(k).length).length;
   const badges = [];
   if (risky) badges.push(pill({ key: 'risk', label: risky + ' gefährdet' }));
   if (blocked) badges.push(pill({ key: 'crit', label: blocked + ' blockiert' }));
   if (!risky && !blocked && ks.length) badges.push(pill({ key: 'done', label: 'alles im Plan' }));
-  if (!ks.length) badges.push(pill({ key: 'open', label: 'noch keine Kennzahlen' }));
+  if (!os.length) badges.push(pill({ key: 'open', label: 'noch keine Ziele' }));
   return el('button', { class: 'card ressort-card', onClick: () => go('ressort', r.id) },
     el('div', { class: 'top' }, dot(r.color), el('span', { class: 'name' }, r.name)),
-    el('div', { style: 'display:flex;justify-content:space-between' }, el('span', { class: 'muted small' }, `${ks.length} Kennzahlen · ${done} erreicht`), el('span', { class: 'strong num' }, p + '%')),
+    el('div', { style: 'display:flex;justify-content:space-between' }, el('span', { class: 'muted small' }, `${plural(os.length, 'Ziel', 'Ziele')} · ${done} erreicht · ${plural(ks.length, 'Schlüsselergebnis', 'Schlüsselergebnisse')}`), el('span', { class: 'strong num' }, p + '%')),
     el('div', { class: 'bar' }, el('div', { class: 'bar-fill', style: `width:${p}%;background:${r.color}` })),
     el('div', { class: 'chips' }, ...badges));
 }
@@ -372,12 +422,12 @@ function ressortCard(r) {
 function renderRessort(main) {
   const r = ressort(state.ressortId);
   if (!r) return go('overview');
-  const ks = evKpis().filter((k) => k.ressortId === r.id);
+  const os = objectivesOf(r.id);
+  const ks = evKrs().filter((k) => k.ressortId === r.id);
   const done = ks.filter((k) => k.achieved).length;
-  const p = ks.length ? Math.round(ks.reduce((a, k) => a + pct(k), 0) / ks.length) : 0;
   const editable = canEditRessort(r.id);
-  const hint = r.isLead ? 'Führungsressort – pflegt die Event-Kennzahlen' : 'Teams tragen ihre Kennzahlen hier selbst ein';
-  main.append(
+  const hint = r.isLead ? 'Führungsressort – pflegt die Event-Ziele' : 'Teams pflegen ihre Ziele und Schlüsselergebnisse hier selbst';
+  append(main,
     el('div', { class: 'head-row' },
       el('div', {},
         el('div', { class: 'muted small strong' }, el('button', { class: 'link-btn', onClick: () => go('overview') }, 'Übersicht'), ' / Ressort'),
@@ -385,32 +435,45 @@ function renderRessort(main) {
         el('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, hint + (editable ? '' : ' · nur Lesen'))),
       el('div', { style: 'display:flex;gap:8px' },
         isAdmin() ? el('button', { class: 'btn ghost', onClick: () => modalRessortForm(r) }, 'Ressort bearbeiten') : null,
-        editable ? el('button', { class: 'btn', onClick: () => modalKpiForm(null, r.id) }, '+ Kennzahl') : null)),
-    el('div', { class: 'grid grid-4' },
-      miniStat('Kennzahlen', ks.length), miniStat('Erreicht', `${done}/${ks.length}`), miniStat('Fortschritt', p + '%'),
-      miniStat('Gefährdet', ks.filter((k) => ['risk', 'crit', 'late'].includes(status(k).key)).length)),
-    el('section', { class: 'card' }, kpiTable(ks, { empty: editable ? 'Noch keine Kennzahlen – mit „+ Kennzahl“ anlegen.' : 'Noch keine Kennzahlen.' })),
+        editable ? el('button', { class: 'btn', onClick: () => modalObjectiveForm(null, r.id) }, '+ Ziel') : null)),
+    el('div', { class: 'grid grid-5' },
+      miniStat('Ziele', `${os.filter((o) => objAchieved(o)).length}/${os.length}`), miniStat('Schlüsselergebnisse', ks.length), miniStat('Erreicht', `${done}/${ks.length}`), miniStat('Fortschritt', avgPct(ks) + '%'),
+      miniStat('Gefährdet', ks.filter(atRisk).length)),
+    el('div', { class: 'stack' }, ...os.map(objectiveBlock),
+      !os.length && el('div', { class: 'card empty' }, editable ? 'Noch keine Ziele – mit „+ Ziel“ das erste anlegen, danach Schlüsselergebnisse ergänzen.' : 'Noch keine Ziele.')),
     isAdmin() ? archiveSection(r) : null
   );
 }
-// Archiv eines Ressorts (nur Admin): ansehen und wiederherstellen
+// Archiv eines Ressorts (nur Admin): archivierte Ziele und Schlüsselergebnisse ansehen und wiederherstellen
 function archiveSection(r) {
-  const list = state.data.kpis.filter((k) => k.ressortId === r.id && k.archivedAt).sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
-  if (!list.length) return null;
+  const os = state.data.objectives.filter((o) => o.ressortId === r.id && o.archivedAt).sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
+  const ks = state.data.keyResults.filter((k) => k.ressortId === r.id && k.archivedAt).sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
+  if (!os.length && !ks.length) return null;
+  const archivedBy = (x) => el('td', { class: 'small' }, de(x.archivedAt), x.archivedBy ? el('div', { class: 'muted' }, 'von ' + x.archivedBy) : null);
   return el('section', { class: 'card' }, el('details', { class: 'archive' },
-    el('summary', { class: 'section-head' }, el('div', {}, el('h2', {}, `Archiv (${list.length})`), el('div', { class: 'muted small' }, 'Archivierte Kennzahlen – nur für Admins sichtbar'))),
-    el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
-      el('thead', {}, el('tr', {}, ...['Kennzahl', 'Typ', 'Ziel', 'Ist', 'Archiviert', ''].map((h) => el('th', {}, h)))),
-      el('tbody', {}, ...list.map((k) => el('tr', {},
+    el('summary', { class: 'section-head' }, el('div', {}, el('h2', {}, `Archiv (${os.length + ks.length})`), el('div', { class: 'muted small' }, 'Archivierte Ziele und Schlüsselergebnisse – nur für Admins sichtbar'))),
+    os.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
+      el('thead', {}, el('tr', {}, ...['Ziel', 'Schlüsselergebnisse', 'Archiviert', ''].map((h) => el('th', {}, h)))),
+      el('tbody', {}, ...os.map((o) => el('tr', {},
+        el('td', { class: 'strong' }, o.title),
+        el('td', { class: 'num' }, state.data.keyResults.filter((k) => k.objectiveId === o.id).length),
+        archivedBy(o),
+        el('td', { class: 'actions' }, el('button', { class: 'btn small-btn', onClick: () => act(() => api('POST', `/api/objectives/${o.id}/restore`), 'Ziel wiederhergestellt') }, 'Wiederherstellen'))))))) : null,
+    ks.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
+      el('thead', {}, el('tr', {}, ...['Schlüsselergebnis', 'Ziel', 'Typ', 'Zielwert', 'Ist', 'Archiviert', ''].map((h) => el('th', {}, h)))),
+      el('tbody', {}, ...ks.map((k) => el('tr', {},
         el('td', { class: 'strong' }, k.title),
+        el('td', {}, objective(k.objectiveId)?.title || '–', objective(k.objectiveId)?.archivedAt ? el('span', { class: 'chip open', style: 'margin-left:6px' }, 'archiviert') : null),
         el('td', {}, el('span', { class: 'type-chip' }, TYPE_LABEL[k.type])),
         el('td', {}, targetLabel(k)), el('td', {}, valueLabel(k)),
-        el('td', { class: 'small' }, de(k.archivedAt), k.archivedBy ? el('div', { class: 'muted' }, 'von ' + k.archivedBy) : null),
+        archivedBy(k),
         el('td', { class: 'actions' },
           el('button', { class: 'btn ghost small-btn', onClick: () => modalHistory(k) }, 'Historie'),
-          el('button', { class: 'btn small-btn', onClick: () => act(() => api('POST', `/api/kpis/${k.id}/restore`), 'Kennzahl wiederhergestellt') }, 'Wiederherstellen')))))))));
+          el('button', { class: 'btn small-btn', onClick: () => act(() => api('POST', `/api/key-results/${k.id}/restore`), 'Schlüsselergebnis wiederhergestellt') }, 'Wiederherstellen'))))))) : null));
 }
-const archivedLabel = (r) => { const n = state.data.kpis.filter((k) => k.ressortId === r.id && k.archivedAt).length; return n ? el('span', { class: 'muted small' }, ` (+${n} archiviert)`) : null; };
+// Zahl der Ziele und Schlüsselergebnisse eines Ressorts bzw. Events, inkl. archivierter
+const contentCount = (fn) => state.data.objectives.filter(fn).length + state.data.keyResults.filter(fn).length;
+const archivedLabel = (r) => { const n = contentCount((x) => x.ressortId === r.id && x.archivedAt); return n ? el('span', { class: 'muted small' }, ` (+${n} archiviert)`) : null; };
 const miniStat = (l, v) => el('div', { class: 'card stat', style: 'padding:16px 18px' }, el('div', { class: 'muted small strong' }, l), el('div', { class: 'num', style: 'font-size:24px;font-weight:700' }, v));
 
 // ---------- Verwaltung (nur Admin) ----------
@@ -503,12 +566,12 @@ function adminEvents(main) {
   main.append(el('section', { class: 'card' },
     el('div', { class: 'section-head' }, el('h2', {}, `Events (${state.data.events.length})`), el('button', { class: 'btn small-btn', onClick: () => modalEventForm(null) }, '+ Event')),
     el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
-      el('thead', {}, el('tr', {}, ...['Name', 'Beginn', 'Ende', 'Ressorts', 'Kennzahlen', 'Nutzer', ''].map((h) => el('th', {}, h)))),
+      el('thead', {}, el('tr', {}, ...['Name', 'Beginn', 'Ende', 'Ressorts', 'Ziele', 'Schlüsselergebnisse', 'Nutzer', ''].map((h) => el('th', {}, h)))),
       el('tbody', {}, ...(state.data.events.length ? state.data.events.map((ev) => el('tr', {},
         el('td', { class: 'strong' }, ev.name), el('td', {}, de(ev.startDate)), el('td', {}, de(ev.endDate)),
-        el('td', { class: 'num' }, count(state.data.ressorts, ev)), el('td', { class: 'num' }, count(activeKpis(), ev)), el('td', { class: 'num' }, count(state.users, ev)),
+        el('td', { class: 'num' }, count(state.data.ressorts, ev)), el('td', { class: 'num' }, count(activeObjectives(), ev)), el('td', { class: 'num' }, count(activeKrs(), ev)), el('td', { class: 'num' }, count(state.users, ev)),
         el('td', { class: 'actions' }, el('button', { class: 'btn ghost small-btn', onClick: () => modalEventForm(ev) }, 'Bearbeiten'))))
-        : [el('tr', {}, el('td', { colspan: 7, class: 'empty' }, 'Noch keine Events.'))]))))));
+        : [el('tr', {}, el('td', { colspan: 8, class: 'empty' }, 'Noch keine Events.'))]))))));
 }
 
 function adminRessorts(main) {
@@ -519,10 +582,11 @@ function adminRessorts(main) {
     el('div', { class: 'section-head' }, el('div', {}, el('h2', {}, `Ressorts von „${ev.name}“`), el('div', { class: 'muted small' }, 'Anderes Event? Oben in der Event-Auswahl wechseln.')),
       el('button', { class: 'btn small-btn', onClick: () => modalRessortForm(null) }, '+ Ressort')),
     el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
-      el('thead', {}, el('tr', {}, ...['Ressort', 'Kennzahlen', 'Nutzer', ''].map((h) => el('th', {}, h)))),
+      el('thead', {}, el('tr', {}, ...['Ressort', 'Ziele', 'Schlüsselergebnisse', 'Nutzer', ''].map((h) => el('th', {}, h)))),
       el('tbody', {}, ...rs.map((r) => el('tr', {},
-        el('td', {}, el('span', { class: 'with-dot strong' }, dot(r.color), r.name, r.isLead ? el('span', { class: 'chip lead' }, 'Führung · Event-Kennzahlen') : null, r.unreviewed ? el('span', { class: 'chip open' }, 'neu, ungeprüft') : null)),
-        el('td', { class: 'num' }, activeKpis().filter((k) => k.ressortId === r.id).length, archivedLabel(r)),
+        el('td', {}, el('span', { class: 'with-dot strong' }, dot(r.color), r.name, r.isLead ? el('span', { class: 'chip lead' }, 'Führung · Event-Ziele') : null, r.unreviewed ? el('span', { class: 'chip open' }, 'neu, ungeprüft') : null)),
+        el('td', { class: 'num' }, objectivesOf(r.id).length),
+        el('td', { class: 'num' }, activeKrs().filter((k) => k.ressortId === r.id).length, archivedLabel(r)),
         el('td', { class: 'num' }, state.users.filter((u) => u.ressortId === r.id).length),
         el('td', { class: 'actions' },
           r.unreviewed ? el('button', { class: 'btn small-btn', onClick: () => act(() => api('PUT', `/api/ressorts/${r.id}`, { unreviewed: false }), 'Ressort bestätigt') }, 'Bestätigen') : null,
@@ -560,35 +624,66 @@ function historyItems(k) {
       h.note ? el('div', { class: 'note' }, h.note) : null)));
 }
 
-// Nur lesen – für Kennzahlen anderer Ressorts
+// Nur lesen – für Schlüsselergebnisse anderer Ressorts
 function modalHistory(k) {
-  openModal(k.title, owner(k) + ' · Historie',
-    [el('div', { class: 'two' }, infoBox('Ziel', targetLabel(k)), infoBox('Ist', valueLabel(k))), ...historyItems(k)],
+  openModal(k.title, [owner(k), objective(k.objectiveId)?.title, 'Historie'].filter(Boolean).join(' · '),
+    [el('div', { class: 'two' }, infoBox('Zielwert', targetLabel(k)), infoBox('Ist', valueLabel(k))), ...historyItems(k)],
     (close) => [el('span', { class: 'muted small left', style: 'align-self:center' }, `${k.history.length} Einträge · neueste zuerst`), el('button', { class: 'btn ghost', onClick: close }, 'Schließen')], true);
 }
 
-// Anlegen und Bearbeiten in einem Dialog: aktueller Stand (Ist-Wert bzw. Ja/Nein, Kommentar), Stammdaten, Historie
-function modalKpiForm(k, ressortId) {
+// Ziel anlegen und bearbeiten: Bezeichnung, Beschreibung, Frist; das Ressort wechselt nur ein Admin.
+function modalObjectiveForm(o, ressortId) {
+  const isNew = !o;
+  const rid = isNew ? ressortId : o.ressortId;
+  const title = inp('o-title', { value: o?.title || '', placeholder: 'z. B. Der Summit trägt sich wirtschaftlich selbst' });
+  const desc = el('textarea', { id: 'o-desc', rows: 3, placeholder: 'Optional: Was soll am Ende anders sein? Warum ist das Ziel wichtig?' }, o?.description || '');
+  const deadline = inp('o-deadline', { type: 'date', value: o?.deadline || '' });
+  const ownerSel = el('select', { id: 'o-owner', disabled: !isAdmin() }, ...evRessorts().map((r) => el('option', { value: r.id, selected: rid === r.id }, r.name + (r.isLead ? ' (Event-Ziele)' : ''))));
+  const ks = isNew ? [] : krsOf(o);
+  const payload = () => ({ title: title.value.trim(), description: desc.value, deadline: deadline.value || null, ...(isAdmin() ? { ressortId: ownerSel.value } : {}) });
+  openModal(isNew ? 'Neues Ziel' : o.title, isNew ? ressort(rid).name + ' · Ziel anlegen' : ressort(rid).name + ' · Ziel bearbeiten',
+    [field('Bezeichnung', title, 'Ein Ziel beschreibt, was erreicht sein soll – die Schlüsselergebnisse machen es messbar.'),
+      field('Beschreibung', desc),
+      el('div', { class: 'two' }, field('Frist', deadline), field('Ressort', ownerSel, isAdmin() ? (isNew ? null : 'Beim Wechsel wandern alle Schlüsselergebnisse mit; Abhängigkeiten ins alte Ressort werden gelöst.') : 'Zuordnung ändert nur ein Admin.')),
+      !isNew ? el('div', { class: 'muted small' }, `${plural(ks.length, 'Schlüsselergebnis', 'Schlüsselergebnisse')} gehören zu diesem Ziel.`) : null],
+    (close) => [
+      !isNew && isAdmin() && (ks.length
+        ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Archivieren erst ohne aktive Schlüsselergebnisse möglich.')
+        : el('button', { class: 'btn danger left', onClick: () => confirm(`„${o.title}“ archivieren? Das Ziel verschwindet aus den Listen und lässt sich im Ressort unter „Archiv“ wiederherstellen.`) && act(() => api('DELETE', `/api/objectives/${o.id}`), 'Ziel archiviert').then(closeOn(close)) }, 'Archivieren')),
+      cancelBtn(close),
+      el('button', { class: 'btn', onClick: () => {
+        if (!title.value.trim()) return alert('Bitte eine Bezeichnung angeben.');
+        act(() => isNew ? api('POST', '/api/objectives', { ressortId: rid, ...payload() }) : api('PUT', `/api/objectives/${o.id}`, payload()), isNew ? 'Ziel angelegt' : 'Ziel gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')]);
+}
+
+// Schlüsselergebnis anlegen und bearbeiten in einem Dialog: aktueller Stand (Ist-Wert bzw. Ja/Nein, Kommentar), Stammdaten, Historie
+function modalKrForm(k, obj) {
   const isNew = !k;
-  const rid = isNew ? ressortId : k.ressortId;
+  const o0 = isNew ? obj : objective(k.objectiveId);
   const title = inp('k-title', { value: k?.title || '', placeholder: 'z. B. Verkaufte Tickets' });
   const type = el('select', { id: 'k-type' }, ...Object.entries(TYPE_LABEL).map(([v, l]) => el('option', { value: v, selected: (k?.type || 'number') === v }, l)));
   const target = inp('k-target', { type: 'number', step: 'any', value: k ? k.target : '' });
   const unit = inp('k-unit', { value: k?.unit || '', placeholder: 'Tickets, €, Speaker …' });
   const current = inp('k-current', { type: 'number', step: 'any', value: k ? k.current : 0 });
   const deadline = inp('k-deadline', { type: 'date', value: k?.deadline || '' });
-  // Ressort wechseln dürfen nur Admins
-  const ownerSel = el('select', { id: 'k-owner', disabled: !isAdmin() }, ...evRessorts().map((r) => el('option', { value: r.id, selected: rid === r.id }, r.name + (r.isLead ? ' (Event-Kennzahlen)' : ''))));
-  const desc = el('textarea', { id: 'k-desc', rows: 2, placeholder: 'Optional: Was misst diese Kennzahl, woher kommen die Daten?' }, k?.description || '');
-  // Abhängigkeiten nur innerhalb desselben Ressorts
+  // Ziel wechseln: innerhalb des eigenen Ressorts jeder, in ein anderes Ressort nur Admins
+  const choosable = evObjectives().filter((o) => isAdmin() || o.ressortId === o0.ressortId);
+  const objSel = el('select', { id: 'k-objective' }, ...evRessorts().map((r) => {
+    const os = choosable.filter((o) => o.ressortId === r.id);
+    return os.length ? el('optgroup', { label: r.name }, ...os.map((o) => el('option', { value: o.id, selected: o.id === o0.id }, o.title))) : null;
+  }));
+  const selObjective = () => objective(objSel.value) || o0;
+  const desc = el('textarea', { id: 'k-desc', rows: 2, placeholder: 'Optional: Was misst dieses Schlüsselergebnis, woher kommen die Daten?' }, k?.description || '');
+  // Abhängigkeiten nur innerhalb desselben Ressorts (auch zu anderen Zielen des Ressorts)
   const depsBox = el('div', { class: 'deps-list' });
   const syncDeps = () => {
-    const keep = ownerSel.value === k?.ressortId ? k.deps : [];
-    const candidates = evKpis().filter((x) => x.id !== k?.id && x.ressortId === ownerSel.value);
-    depsBox.replaceChildren(...(candidates.length ? candidates.map((x) => el('label', {}, el('input', { type: 'checkbox', value: x.id, checked: keep.includes(x.id) }), el('span', { class: 'grow' }, x.title), el('span', { class: 'muted small' }, TYPE_LABEL[x.type])))
-      : [el('span', { class: 'muted small' }, 'Keine weiteren Kennzahlen in diesem Ressort.')]));
+    const rid = selObjective().ressortId;
+    const keep = rid === k?.ressortId ? k.deps : [];
+    const candidates = evKrs().filter((x) => x.id !== k?.id && x.ressortId === rid);
+    depsBox.replaceChildren(...(candidates.length ? candidates.map((x) => el('label', {}, el('input', { type: 'checkbox', value: x.id, checked: keep.includes(x.id) }), el('span', { class: 'grow' }, x.title, el('span', { class: 'muted small' }, ' · ' + (objective(x.objectiveId)?.title || ''))), el('span', { class: 'muted small' }, TYPE_LABEL[x.type])))
+      : [el('span', { class: 'muted small' }, 'Keine weiteren Schlüsselergebnisse in diesem Ressort.')]));
   };
-  ownerSel.addEventListener('change', syncDeps); syncDeps();
+  objSel.addEventListener('change', syncDeps); syncDeps();
 
   // Aktueller Stand
   const form = { yes: !!k?.achieved };
@@ -615,30 +710,31 @@ function modalKpiForm(k, ressortId) {
   sync();
   if (!isNew) type.disabled = true;
 
-  const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, ressortId: ownerSel.value, description: desc.value, deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value).concat(ownerSel.value === k?.ressortId ? k.deps.filter((d) => byId(d)?.archivedAt) : []),
+  const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, objectiveId: objSel.value, description: desc.value,
+    deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value).concat(selObjective().ressortId === k?.ressortId ? k.deps.filter((d) => byId(d)?.archivedAt) : []),
     ...(isNew ? {} : { achieved: form.yes, achievedAt: dateField.hidden ? undefined : achievedAt.value, note: note.value }) });
   const masterData = [field('Bezeichnung', title),
-    el('div', { class: 'two' }, field('Typ', type, isNew ? null : 'Der Typ ist nach dem Anlegen fest.'), field('Ressort', ownerSel, isAdmin() ? null : 'Zuordnung ändert nur ein Admin.')),
+    el('div', { class: 'two' }, field('Typ', type, isNew ? null : 'Der Typ ist nach dem Anlegen fest.'), field('Ziel', objSel, isAdmin() ? null : 'Ziele anderer Ressorts ordnet nur ein Admin zu.')),
     numFields, isNew ? curField : null,
-    field('Frist / Zieldatum', deadline),
+    field('Frist', deadline),
     field('Beschreibung', desc),
     el('div', { class: 'field' }, el('label', {}, 'Abhängig von ', el('span', {}, '(Voraussetzungen aus demselben Ressort)')), depsBox)];
-  openModal(isNew ? 'Neue Kennzahl' : k.title, isNew ? ressort(rid).name + ' · anlegen' : owner(k) + ' · bearbeiten',
+  openModal(isNew ? 'Neues Schlüsselergebnis' : k.title, isNew ? `${ressort(o0.ressortId).name} · ${o0.title}` : `${owner(k)} · ${o0?.title || ''} · bearbeiten`,
     isNew ? masterData : [
       el('div', { class: 'sec-label' }, 'Aktueller Stand'),
-      el('div', { class: 'two' }, curField, boolField, infoBox('Ziel', targetLabel(k))),
+      el('div', { class: 'two' }, curField, boolField, infoBox('Zielwert', targetLabel(k))),
       dateField, depsWarn,
       field('Kommentar', note, 'Erscheint in der Historie, auch ohne andere Änderung.'),
       el('div', { class: 'sec-label', style: 'margin-top:8px' }, 'Stammdaten'),
       ...masterData,
       el('details', { class: 'hist-box' }, el('summary', {}, `Historie (${k.history.length})`), ...historyItems(k))],
     (close) => [
-      !isNew && isAdmin() && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ archivieren? Die Kennzahl verschwindet aus den Listen und lässt sich im Ressort unter „Archiv“ wiederherstellen.`) && act(() => api('DELETE', `/api/kpis/${k.id}`), 'Kennzahl archiviert').then(closeOn(close)) }, 'Archivieren'),
+      !isNew && isAdmin() && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ archivieren? Das Schlüsselergebnis verschwindet aus den Listen und lässt sich im Ressort unter „Archiv“ wiederherstellen.`) && act(() => api('DELETE', `/api/key-results/${k.id}`), 'Schlüsselergebnis archiviert').then(closeOn(close)) }, 'Archivieren'),
       cancelBtn(close),
       el('button', { class: 'btn', onClick: () => {
         if (!title.value.trim()) return alert('Bitte eine Bezeichnung angeben.');
         if (type.value === 'number' && !(Number(target.value) > 0)) return alert('Bitte einen Zielwert größer als 0 angeben.');
-        act(() => isNew ? api('POST', '/api/kpis', payload()) : api('PUT', `/api/kpis/${k.id}`, payload()), isNew ? 'Kennzahl angelegt' : 'Kennzahl gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')], true);
+        act(() => isNew ? api('POST', '/api/key-results', payload()) : api('PUT', `/api/key-results/${k.id}`, payload()), isNew ? 'Schlüsselergebnis angelegt' : 'Schlüsselergebnis gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')], true);
 }
 
 function modalRessortForm(r) {
@@ -649,10 +745,10 @@ function modalRessortForm(r) {
   openModal(isNew ? 'Neues Ressort' : r.name, isNew ? 'Ressort anlegen' : r.isLead ? 'Führungsressort bearbeiten' : 'Ressort bearbeiten',
     [field('Name', name), field('Farbe', color),
       !isNew ? el('div', { class: 'muted small' }, 'Wer das Ressort pflegt, legst du in der Nutzerliste fest (Verwaltung → Nutzer).') : null,
-      r?.isLead ? el('div', { class: 'muted small' }, 'Das Führungsressort pflegt die Event-Kennzahlen. Es lässt sich umbenennen, aber nicht löschen.') : null],
+      r?.isLead ? el('div', { class: 'muted small' }, 'Das Führungsressort pflegt die Event-Ziele. Es lässt sich umbenennen, aber nicht löschen.') : null],
     (close) => [
-      !isNew && !r.isLead && (kpiCount((k) => k.ressortId === r.id)
-        ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Löschen erst ohne Kennzahlen möglich – vorher zusammenführen.')
+      !isNew && !r.isLead && (contentCount((x) => x.ressortId === r.id)
+        ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Löschen erst ohne Ziele und Schlüsselergebnisse möglich – vorher zusammenführen.')
         : el('button', { class: 'btn danger left', onClick: () => confirm(`Ressort „${r.name}“ löschen? Zugeordnete Nutzer verlieren ihre Zuordnung.`) && act(() => api('DELETE', `/api/ressorts/${r.id}`), 'Ressort gelöscht').then((ok) => { if (!ok) return; close(); if (state.view === 'ressort') go('overview'); }) }, 'Löschen')),
       cancelBtn(close),
       el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/ressorts', { eventId: state.eventId, ...payload() }) : await api('PUT', `/api/ressorts/${r.id}`, payload()); if (isNew && state.view !== 'admin') { state.view = 'ressort'; state.ressortId = res.id; } }, isNew ? 'Ressort angelegt' : 'Ressort gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')]);
@@ -661,10 +757,10 @@ function modalRessortForm(r) {
 function modalMerge(r) {
   const targets = evRessorts().filter((x) => x.id !== r.id);
   const sel = el('select', { id: 'm-into' }, ...targets.map((x) => el('option', { value: x.id }, x.name)));
-  const nK = state.data.kpis.filter((k) => k.ressortId === r.id).length, nU = state.users.filter((u) => u.ressortId === r.id).length;
+  const nO = state.data.objectives.filter((o) => o.ressortId === r.id).length, nK = state.data.keyResults.filter((k) => k.ressortId === r.id).length, nU = state.users.filter((u) => u.ressortId === r.id).length;
   openModal(r.name, 'Ressort zusammenführen',
     [field('Zusammenführen mit', sel),
-      el('div', { class: 'warn-box' }, `${nK} Kennzahl(en) und ${nU} Nutzer von „${r.name}“ wandern in das gewählte Ressort. „${r.name}“ wird danach gelöscht.`)],
+      el('div', { class: 'warn-box' }, `${plural(nO, 'Ziel', 'Ziele')}, ${plural(nK, 'Schlüsselergebnis', 'Schlüsselergebnisse')} und ${nU} Nutzer von „${r.name}“ wandern in das gewählte Ressort. „${r.name}“ wird danach gelöscht.`)],
     (close) => [cancelBtn(close), el('button', { class: 'btn', onClick: () => act(() => api('POST', `/api/admin/ressorts/${r.id}/merge`, { intoId: sel.value }), 'Ressorts zusammengeführt').then(closeOn(close)) }, 'Zusammenführen')]);
 }
 
@@ -676,10 +772,10 @@ function modalEventForm(ev) {
   const payload = () => ({ name: name.value.trim(), startDate: start.value || null, endDate: end.value || null });
   openModal(isNew ? 'Neues Event' : ev.name, isNew ? 'Event anlegen' : 'Event bearbeiten',
     [field('Name', name), el('div', { class: 'two' }, field('Beginn', start), field('Ende', end)),
-      isNew ? el('div', { class: 'muted small' }, 'Das Führungsressort für die Event-Kennzahlen wird automatisch angelegt.') : null],
+      isNew ? el('div', { class: 'muted small' }, 'Das Führungsressort für die Event-Ziele wird automatisch angelegt.') : null],
     (close) => [
-      !isNew && (kpiCount((k) => k.eventId === ev.id)
-        ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Events mit Kennzahlen lassen sich nicht löschen.')
+      !isNew && (contentCount((x) => x.eventId === ev.id)
+        ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Events mit Zielen oder Schlüsselergebnissen lassen sich nicht löschen.')
         : el('button', { class: 'btn danger left', onClick: () => confirm(`„${ev.name}“ mit seinen Ressorts löschen? Zugeordnete Nutzer verlieren ihre Zuordnung.`) && act(() => api('DELETE', `/api/events/${ev.id}`), 'Event gelöscht').then(closeOn(close)) }, 'Löschen')),
       cancelBtn(close),
       el('button', { class: 'btn', onClick: () => { if (!name.value.trim()) return alert('Bitte einen Namen angeben.'); act(async () => { const res = isNew ? await api('POST', '/api/events', payload()) : await api('PUT', `/api/events/${ev.id}`, payload()); if (isNew) state.eventId = res.id; }, isNew ? 'Event angelegt' : 'Event gespeichert').then(closeOn(close)); } }, isNew ? 'Anlegen' : 'Speichern')]);
@@ -703,7 +799,7 @@ function modalUser(u) {
   const newField = field('Name des neuen Ressorts', newName, 'Gibt es schon ein Ressort mit diesem Namen im Event, wird es verwendet.');
   const wantsNew = !u.ressortId && !!u.requestedRessortName;
   const syncRessorts = (initial) => {
-    rSel.replaceChildren(el('option', { value: '' }, '– kein Ressort –'), ...ressortsOf(evSel.value).map((r) => el('option', { value: r.id, selected: initial && r.id === u.ressortId }, r.name + (r.isLead ? ' (Event-Kennzahlen)' : ''))),
+    rSel.replaceChildren(el('option', { value: '' }, '– kein Ressort –'), ...ressortsOf(evSel.value).map((r) => el('option', { value: r.id, selected: initial && r.id === u.ressortId }, r.name + (r.isLead ? ' (Event-Ziele)' : ''))),
       el('option', { value: '__new', selected: initial && wantsNew }, 'Neues Ressort anlegen …'));
     syncNew();
   };

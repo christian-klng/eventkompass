@@ -4,10 +4,15 @@ Projektnotizen für Claude Code. Sprache im Projekt (UI, Kommentare, Fehlermeldu
 
 ## Was ist das?
 
-**Eventkompass** – OKR-/Kennzahlen-Tracker für Events (v0.2).
-Ein Event hat Ressorts (eins davon ist das **Führungsressort** mit den Event-Kennzahlen); jede Kennzahl (KPI) gehört
-zu genau einem Ressort und hat Ziel, Ist-Wert, Frist, Abhängigkeiten (nur im selben Ressort) und eine Änderungshistorie.
-Nutzer registrieren sich mit Event + Ressort und dürfen nur Kennzahlen ihres eigenen Ressorts bearbeiten, alle sehen alles.
+**Eventkompass** – OKR-Tracker für Events (v0.3).
+Ein Event hat Ressorts (eins davon ist das **Führungsressort** mit den Event-Zielen). Jedes Ressort hat beliebig viele
+**Ziele** (Objectives), jedes Ziel beliebig viele **Schlüsselergebnisse** (Key Results) mit Zielwert, Ist-Wert, Frist,
+Abhängigkeiten (nur im selben Ressort) und Änderungshistorie. Fortschritt und Erreichung eines Ziels ergeben sich aus
+seinen Schlüsselergebnissen. Nutzer registrieren sich mit Event + Ressort und dürfen nur Ziele/Schlüsselergebnisse ihres
+eigenen Ressorts bearbeiten, alle sehen alles.
+
+Wording (UI, Code-Kommentare, Doku): **Ziel** = Objective, **Schlüsselergebnis** = Key Result, **Zielwert** = `target`
+eines Schlüsselergebnisses. „Kennzahl“/„KPI“ nicht mehr verwenden.
 
 Namen: Ordner `okr-tracker`, npm-Paket `okr-event-tracker`, Container `okr-tracker`, UI-Titel „Eventkompass“.
 Plan und offene Punkte: `PLAN.md`.
@@ -41,21 +46,28 @@ npm test                        # API-Tests, laufen ohne Docker
   Beim Start loggt die App, ob und welche Admins existieren.
 - Container läuft als `node` (nicht root); Dockerfile macht `/app` lesbar, weil lokale Dateien teils Rechte 600 haben.
 
-## Daten (`data/data.json`, `version: 3`)
+## Daten (`data/data.json`, `version: 4`)
 
 - Nicht von Hand ändern, während der Container läuft (Zustand liegt im Speicher und wird komplett überschrieben).
-- `{ version, events, ressorts, kpis, users, sessions, invites, settings }` – `GET /api/state` gibt **nur** events/ressorts/kpis heraus,
-  nie `users`, `sessions` oder Passwort-Hashes. Nutzer nach außen immer über `publicUser()`.
+- `{ version, events, ressorts, objectives, keyResults, users, sessions, invites, settings }` – `GET /api/state` gibt **nur**
+  events/ressorts/objectives/keyResults heraus, nie `users`, `sessions` oder Passwort-Hashes. Nutzer nach außen immer über `publicUser()`.
 - **Ressort:** `id, eventId, name, color, isLead, unreviewed, createdAt` (keine „Leitung“ – wer pflegt, ergibt sich aus der Nutzer-Zuordnung). Je Event genau ein `isLead` (nicht löschbar,
   wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
-- **KPI:** `id, eventId, ressortId` (nie null), `title, description, type, target, current, unit, deadline, achieved,
-  achievedAt, archivedAt, archivedBy, deps[], history[], createdAt, updatedAt`
-  - Kennzahlen werden nie gelöscht: `DELETE` setzt `archivedAt` (Admin), `POST …/restore` hebt es auf. Archivierte sind
-    nicht bearbeitbar, im Frontend nur im Ressort-Archiv (Admin) sichtbar (`activeKpis()`/`evKpis()` filtern sie heraus).
+- **Ziel (Objective):** `id, eventId, ressortId, title, description, deadline, archivedAt, archivedBy, createdAt, updatedAt`.
+  Kein eigener Status: erreicht = alle aktiven Schlüsselergebnisse erreicht (und mindestens eins), Fortschritt = Durchschnitt.
+  Archivieren (Admin) nur ohne aktive Schlüsselergebnisse. Ressortwechsel (Admin) nimmt alle Schlüsselergebnisse mit.
+- **Schlüsselergebnis (Key Result):** `id, eventId, ressortId, objectiveId` (alle nie null; `ressortId`/`eventId` folgen dem Ziel),
+  `title, description, type, target, current, unit, deadline, achieved, achievedAt, archivedAt, archivedBy, deps[], history[], createdAt, updatedAt`
+  - Werden nie gelöscht: `DELETE` setzt `archivedAt` (Admin), `POST …/restore` hebt es auf (nur wenn das Ziel nicht archiviert ist).
+    Archivierte sind nicht bearbeitbar, im Frontend nur im Ressort-Archiv (Admin) sichtbar (`activeKrs()`/`evKrs()` filtern sie heraus).
   - Nur zwei Typen: `number` (Anzahl, erreicht automatisch bei `current >= target`) und `bool` (Ja/Nein, von Hand, auch für Meilensteine).
     Frühere Typen `date`/`combo` migriert `migrate()` (v3) zu `bool`/`number`.
-  - `deps` nur auf KPIs mit gleicher `ressortId` (`cleanDeps()`); Ressortwechsel löst Abhängigkeiten in beide Richtungen
+  - `deps` nur auf Schlüsselergebnisse mit gleicher `ressortId` (`cleanDeps()`), auch über Ziele hinweg; ein Ressortwechsel
+    löst Abhängigkeiten in beide Richtungen
+  - Zielwechsel per `PUT` mit `objectiveId`: innerhalb des Ressorts jeder Berechtigte, in ein anderes Ressort nur Admin
   - History: `id, at, who, userId, kind, from, to, note`, neueste zuerst; `who`/`userId` kommen aus der Session
+- **Migration v4** (`migrate()`): `kpis` → `keyResults`; Schlüsselergebnisse ohne gültiges Ziel bekommen je Ressort ein
+  Start-Ziel (Titel = Ressortname, Beschreibung `MIGRATED_OBJECTIVE_NOTE`), das der Nutzer umbenennen oder aufteilen soll.
 - **User:** `id, email, name, passwordHash, role ('admin'|'member'), eventId, ressortId, requestedRessortName,
   status ('pending'|'active'|'disabled'), mustChangePassword, createdAt, approvedAt, approvedBy ('admin'|'auto'), lastLoginAt`
 - **Session:** `tokenHash` (SHA-256 des Cookie-Tokens), `userId`, `expiresAt` (30 Tage). Cookie `ek_session`, `Secure` nur bei HTTPS.
@@ -66,10 +78,12 @@ npm test                        # API-Tests, laufen ohne Docker
 
 ## Rechte (Server ist maßgeblich, UI blendet nur aus)
 
-- `canEditRessort(user, ressortId)`: Admin oder `user.ressortId === ressortId`. Gilt für Anlegen, Wert, Erreichung, Stammdaten.
-- Nur Admin: KPI archivieren/wiederherstellen, KPI anderem Ressort zuordnen, Events/Ressorts verwalten, `/api/admin/*`, `/api/reset` (+ `ALLOW_RESET`).
-- Das Führungsressort hat **keine** Sonderrechte – es pflegt nur seine eigenen (Event-)Kennzahlen.
-- Ressorts und Events lassen sich nur löschen, wenn sie keine Kennzahlen (auch archivierte) haben – Ressorts vorher zusammenführen.
+- `canEditRessort(user, ressortId)`: Admin oder `user.ressortId === ressortId`. Gilt für Ziele und Schlüsselergebnisse
+  (Anlegen, Wert, Erreichung, Stammdaten) – das Ressort eines Schlüsselergebnisses ist das seines Ziels.
+- Nur Admin: Ziel/Schlüsselergebnis archivieren/wiederherstellen, einem anderen Ressort zuordnen, Events/Ressorts verwalten,
+  `/api/admin/*`, `/api/reset` (+ `ALLOW_RESET`).
+- Das Führungsressort hat **keine** Sonderrechte – es pflegt nur seine eigenen (Event-)Ziele.
+- Ressorts und Events lassen sich nur löschen, wenn sie keine Ziele/Schlüsselergebnisse (auch archivierte) haben – Ressorts vorher zusammenführen.
 - Schutz: letzter aktiver Admin kann nicht herabgestuft/gesperrt/gelöscht werden; Sperren/Einmal-Passwort beendet Sessions.
 - Neue schreibende Endpunkte: Rechte prüfen **und** einen Test in `test/api.test.js` ergänzen.
 
@@ -79,8 +93,10 @@ npm test                        # API-Tests, laufen ohne Docker
   `Element.append` bei bedingten Kindern (sonst erscheint „null“ als Text).
 - Globaler `state` (`me, data, users, eventId, view, ressortId, adminTab, userFilter`). Änderungen über
   `act(fn, msg)` → API → `reload()` → `render()`; `act` liefert `true/false`, Dialoge schließen mit `closeOn(close)`.
-- KPI-Zeilen haben genau einen Button: `modalKpiForm(k)` (eigene: Stand, Stammdaten, Historie; speichert alles per `PUT /api/kpis/:id`)
-  oder `modalHistory(k)` (fremde, nur lesen).
+- Ein Ziel ist ein `objectiveBlock(o)` (Kopf mit Fortschritt/Status, darunter `krTable()` mit seinen Schlüsselergebnissen);
+  `modalObjectiveForm(o, ressortId)` legt an/bearbeitet. Schlüsselergebnis-Zeilen haben genau einen Button: `modalKrForm(k, objective)`
+  (eigene: Stand, Stammdaten inkl. Zielauswahl, Historie; speichert alles per `PUT /api/key-results/:id`) oder `modalHistory(k)` (fremde, nur lesen).
+- Status/Fortschritt: `status(k)`/`pct(k)` je Schlüsselergebnis, `objStatus(o)`/`objAchieved(o)`/`avgPct()` je Ziel.
 - Ansichten: `overview`, `ressort`, `admin` (Reiter Nutzer / Events / Ressorts). Anmeldung: `showAuth('login'|'register'|'pending'|'password')`.
 - `api()` leitet bei 401 bzw. `PASSWORD_CHANGE_REQUIRED` selbst zur Anmeldung um (Fehler mit `silent`).
 - Zahlen/Daten deutsch formatieren (`toLocaleString('de-DE')`, `de()`, `deTime()`).
