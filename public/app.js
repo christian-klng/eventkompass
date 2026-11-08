@@ -225,10 +225,20 @@ function render() {
   renderSidebar();
   const main = $('#main');
   main.replaceChildren();
-  if (state.view === 'admin') return renderAdmin(main);
-  if (!curEvent()) { main.append(el('div', { class: 'card empty' }, isAdmin() ? 'Noch kein Event. Lege unter „Verwaltung → Events“ eines an.' : 'Noch kein Event vorhanden.')); return; }
-  if (state.view === 'ressort') renderRessort(main);
+  if (state.view === 'admin') renderAdmin(main);
+  else if (!curEvent()) main.append(el('div', { class: 'card empty' }, isAdmin() ? 'Noch kein Event. Lege unter „Verwaltung → Events“ eines an.' : 'Noch kein Event vorhanden.'));
+  else if (state.view === 'ressort') renderRessort(main);
   else renderOverview(main);
+  labelTables(main);
+}
+
+// Spaltenüberschriften an die Zellen hängen – auf schmalen Bildschirmen zeigt das CSS
+// Tabellenzeilen als Karten und nutzt `data-label` als Beschriftung.
+function labelTables(root) {
+  for (const t of root.querySelectorAll('table')) {
+    const heads = [...t.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+    for (const tr of t.querySelectorAll('tbody tr')) [...tr.children].forEach((td, i) => { if (heads[i]) td.dataset.label = heads[i]; });
+  }
 }
 
 function renderTopbar() {

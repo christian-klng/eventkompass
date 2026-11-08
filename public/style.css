@@ -54,7 +54,7 @@ main{flex:999 1 640px;min-width:0;padding:28px 32px 48px;display:flex;flex-direc
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius)}
 .grid{display:grid;gap:16px}
 .grid-5{grid-template-columns:repeat(5,minmax(0,1fr))}.grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
-@media (max-width:1100px){.grid-5,.grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}.grid-3{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:1100px){.grid-5,.grid-4{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:640px){.grid-5,.grid-4,.grid-3{grid-template-columns:1fr}main{padding:20px 16px 40px}}
 .stat{padding:18px;display:flex;flex-direction:column;gap:6px}
 .stat .label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:500}
@@ -179,3 +179,53 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .admin-table .actions .btn{margin-left:4px}
 .with-dot{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
 @media (max-width:640px){.user-info .small{display:none}.auth-card{padding:22px}}
+
+
+/* Responsiv – Tablet quer: etwas weniger Rand, Tabellen scrollen seitlich */
+@media (max-width:1100px){
+  main{padding:24px 24px 40px}
+  table{min-width:960px}
+}
+
+/* Responsiv – Tablet hoch & Smartphone: Sidebar wird zur Leiste über dem Inhalt */
+@media (max-width:900px){
+  .topbar{padding:0 16px}
+  .layout{flex-direction:column;min-height:0}
+  .sidebar{flex:none;width:100%;min-width:0;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 16px;border-right:none;border-bottom:1px solid var(--line)}
+  .nav{width:auto;height:34px;padding:0 12px;border:1px solid var(--line);border-radius:999px;font-size:13px}
+  .nav.active{border-color:#C7D2FE}
+  .nav .grow{overflow:visible;white-space:nowrap}
+  .nav-head{flex-basis:100%;margin:6px 0 0}
+  #nav-ressorts{display:contents}
+  .side-note{display:none}
+
+  /* Tabellen als Karten: eine Zeile = eine Karte, Zellen in zwei Spalten mit Beschriftung */
+  .table-wrap table,.table-wrap .admin-table{min-width:0}
+  .table-wrap thead{display:none}
+  .table-wrap tbody,.table-wrap tr,.table-wrap td{display:block}
+  .table-wrap tr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px;padding:14px 16px;border-top:1px solid var(--line-soft)}
+  .table-wrap tr:first-child{border-top:none}
+  .table-wrap td{padding:0;border:0;min-width:0}
+  .table-wrap td:first-child,.table-wrap td.actions,.table-wrap td.empty{grid-column:1/-1}
+  .table-wrap td[data-label]::before{content:attr(data-label);display:block;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+  .table-wrap td:first-child::before,.table-wrap td.empty::before{display:none}
+  .table-wrap td.empty{padding:20px 0}
+  .table-wrap td.actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;white-space:normal}
+  .table-wrap .actions .btn,.table-wrap .actions .icon-btn{margin-left:0}
+  /* Kennzahl-Karten: der einzelne Bearbeiten-Button sitzt rechts neben dem Titel */
+  .table-wrap table:not(.admin-table) td:first-child{grid-column:1}
+  .table-wrap table:not(.admin-table) td.actions{grid-column:2;grid-row:1;align-self:start}
+  .kpi-pct{width:auto}
+}
+
+/* Responsiv – Smartphone: knappere Ränder */
+@media (max-width:640px){
+  .topbar{padding:0 12px;gap:8px}
+  .sidebar{padding:10px 12px}
+  main{padding:16px 12px 40px;gap:16px}
+  .stat,.ring-card,.ressort-card{padding:16px}
+  .section-head{padding:14px 16px}
+  .table-wrap tr{padding:12px}
+  .modal-head{padding:16px 16px 0}.modal-body{padding:16px}.modal-foot{padding:12px 16px}
+  .modal-foot{flex-wrap:wrap}
+}
