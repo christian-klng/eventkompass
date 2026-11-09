@@ -147,7 +147,9 @@ test('Rechte: eigenes Ressort ja, fremdes Ressort und Führung nein', async () =
   assert.equal((await m('PUT', '/api/key-results/k-gold', { title: 'x' })).status, 403);
   assert.equal((await m('POST', '/api/key-results', { objectiveId: 'o-partner', title: 'x', type: 'bool' })).status, 403);
   assert.equal((await m('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Podcast live', type: 'bool' })).status, 200);
-  assert.equal((await m('DELETE', '/api/key-results/k-newsletter')).status, 403);
+  assert.equal((await m('DELETE', '/api/key-results/k-gold')).status, 403, 'fremdes Ressort archiviert nicht');
+  assert.equal((await m('POST', '/api/key-results/k-gold/restore')).status, 403);
+  assert.equal((await m('DELETE', '/api/objectives/o-partner')).status, 403);
   assert.equal((await m('PUT', '/api/key-results/k-reach', { objectiveId: 'o-programm' })).status, 403, 'anderes Ressort nur Admin');
   assert.equal((await m('POST', '/api/events', { name: 'x' })).status, 403);
   assert.equal((await m('POST', '/api/ressorts', { eventId: 'ev-summit-2027', name: 'x' })).status, 403);
@@ -342,22 +344,25 @@ test('Bearbeiten speichert Ist-Wert, Erreichung und Kommentar mit Historie', asy
   assert.equal((await a('GET', '/api/state')).body.keyResults.find((x) => x.id === k.id).title, before.title);
 });
 
-test('Löschen archiviert nur; Admins stellen wieder her', async () => {
+test('Löschen archiviert nur; das eigene Ressort archiviert und stellt wieder her', async () => {
   const a = await adminClient();
   const k = (await a('POST', '/api/key-results', { objectiveId: 'o-infrastruktur', title: 'WLAN getestet', type: 'bool', deps: ['k-location'] })).body;
   const m = await member(a, 'r-technik');
-  assert.equal((await m('DELETE', `/api/key-results/${k.id}`)).status, 403, 'Mitglieder archivieren nicht');
-  const arch = await a('DELETE', `/api/key-results/${k.id}`);
-  assert.equal(arch.status, 200);
+  const f = await member(a, 'r-marketing');
+  assert.equal((await f('DELETE', `/api/key-results/${k.id}`)).status, 403, 'fremdes Ressort archiviert nicht');
+  const arch = await m('DELETE', `/api/key-results/${k.id}`);
+  assert.equal(arch.status, 200, 'Mitglied archiviert im eigenen Ressort');
   assert.ok(arch.body.archivedAt);
   assert.equal(arch.body.history[0].kind, 'Archiviert');
+  assert.ok(arch.body.archivedBy);
   let st = (await a('GET', '/api/state')).body;
   assert.ok(st.keyResults.some((x) => x.id === k.id), 'bleibt in den Daten');
   assert.equal((await a('PUT', `/api/key-results/${k.id}`, { title: 'x' })).status, 400, 'archiviert = nicht bearbeitbar');
   assert.equal((await m('POST', `/api/key-results/${k.id}/value`, { value: 1 })).status, 400);
   assert.equal((await a('PUT', '/api/key-results/k-stream', { deps: ['k-location', k.id] })).status, 400, 'nicht neu als Voraussetzung wählbar');
-  assert.equal((await m('POST', `/api/key-results/${k.id}/restore`)).status, 403);
-  const back = await a('POST', `/api/key-results/${k.id}/restore`);
+  assert.equal((await f('POST', `/api/key-results/${k.id}/restore`)).status, 403, 'fremdes Ressort stellt nicht wieder her');
+  const back = await m('POST', `/api/key-results/${k.id}/restore`);
+  assert.equal(back.status, 200, 'Mitglied stellt im eigenen Ressort wieder her');
   assert.equal(back.body.archivedAt, null);
   assert.equal(back.body.history[0].kind, 'Wiederhergestellt');
   assert.deepEqual(back.body.deps, ['k-location'], 'Abhängigkeiten bleiben erhalten');
@@ -435,8 +440,9 @@ test('Ziele: Rechte, Ressortwechsel nimmt Schlüsselergebnisse mit, Archiv nur o
   assert.equal(k.ressortId, 'r-marketing');
   assert.deepEqual(k.deps, ['k-newsletter']);
   // Admin verschiebt das Ziel in ein anderes Ressort: Schlüsselergebnis folgt, Abhängigkeit ins alte Ressort fällt weg
-  assert.equal((await m('DELETE', `/api/objectives/${o.id}`)).status, 403);
-  assert.equal((await a('DELETE', `/api/objectives/${o.id}`)).status, 400, 'noch aktive Schlüsselergebnisse');
+  const f = await member(a, 'r-programm');
+  assert.equal((await f('DELETE', `/api/objectives/${o.id}`)).status, 403, 'fremdes Ressort archiviert nicht');
+  assert.equal((await m('DELETE', `/api/objectives/${o.id}`)).status, 400, 'noch aktive Schlüsselergebnisse');
   const moved = await a('PUT', `/api/objectives/${o.id}`, { ressortId: 'r-programm' });
   assert.equal(moved.status, 200);
   let st = (await a('GET', '/api/state')).body;
@@ -444,15 +450,18 @@ test('Ziele: Rechte, Ressortwechsel nimmt Schlüsselergebnisse mit, Archiv nur o
   assert.equal(kk.ressortId, 'r-programm');
   assert.deepEqual(kk.deps, []);
   assert.equal((await m('PUT', `/api/key-results/${k.id}`, { current: 10 })).status, 403, 'gehört jetzt Programm');
+  assert.equal((await m('DELETE', `/api/key-results/${k.id}`)).status, 403, 'altes Ressort archiviert nicht mehr');
   // Archivieren erst ohne aktive Schlüsselergebnisse; Wiederherstellen des Schlüsselergebnisses erst nach dem Ziel
-  await a('DELETE', `/api/key-results/${k.id}`);
-  const arch = await a('DELETE', `/api/objectives/${o.id}`);
+  // (alles durch ein Mitglied des neuen Ressorts)
+  assert.equal((await f('DELETE', `/api/key-results/${k.id}`)).status, 200);
+  const arch = await f('DELETE', `/api/objectives/${o.id}`);
   assert.equal(arch.status, 200);
   assert.ok(arch.body.archivedAt);
+  assert.equal((await m('POST', `/api/objectives/${o.id}/restore`)).status, 403, 'fremdes Ressort stellt nicht wieder her');
   assert.equal((await a('POST', '/api/key-results', { objectiveId: o.id, title: 'x', type: 'bool' })).status, 400, 'archiviertes Ziel');
-  assert.equal((await a('POST', `/api/key-results/${k.id}/restore`)).status, 400, 'Ziel zuerst');
-  assert.equal((await a('POST', `/api/objectives/${o.id}/restore`)).body.archivedAt, null);
-  assert.equal((await a('POST', `/api/key-results/${k.id}/restore`)).body.archivedAt, null);
+  assert.equal((await f('POST', `/api/key-results/${k.id}/restore`)).status, 400, 'Ziel zuerst');
+  assert.equal((await f('POST', `/api/objectives/${o.id}/restore`)).body.archivedAt, null);
+  assert.equal((await f('POST', `/api/key-results/${k.id}/restore`)).body.archivedAt, null);
   st = (await a('GET', '/api/state')).body;
   assert.ok(st.objectives.some((x) => x.id === o.id && !x.archivedAt));
 });

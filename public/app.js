@@ -66,7 +66,7 @@ const curEvent = () => eventById(state.eventId);
 const ressortsOf = (eventId) => state.data.ressorts.filter((r) => r.eventId === eventId).sort((a, b) => b.isLead - a.isLead);
 const evRessorts = () => ressortsOf(state.eventId);
 const leadRessort = () => evRessorts().find((r) => r.isLead);
-// Archivierte Ziele und Schlüsselergebnisse tauchen nur im Archiv des Ressorts auf (für Admins)
+// Archivierte Ziele und Schlüsselergebnisse tauchen nur im Archiv des Ressorts auf (für alle, die das Ressort bearbeiten dürfen)
 const activeObjectives = () => state.data.objectives.filter((o) => !o.archivedAt);
 const evObjectives = () => activeObjectives().filter((o) => o.eventId === state.eventId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 const objectivesOf = (ressortId) => evObjectives().filter((o) => o.ressortId === ressortId);
@@ -441,17 +441,17 @@ function renderRessort(main) {
       miniStat('Gefährdet', ks.filter(atRisk).length)),
     el('div', { class: 'stack' }, ...os.map(objectiveBlock),
       !os.length && el('div', { class: 'card empty' }, editable ? 'Noch keine Ziele – mit „+ Ziel“ das erste anlegen, danach Schlüsselergebnisse ergänzen.' : 'Noch keine Ziele.')),
-    isAdmin() ? archiveSection(r) : null
+    editable ? archiveSection(r) : null
   );
 }
-// Archiv eines Ressorts (nur Admin): archivierte Ziele und Schlüsselergebnisse ansehen und wiederherstellen
+// Archiv eines Ressorts (Admin und Mitglieder des Ressorts): archivierte Ziele und Schlüsselergebnisse ansehen und wiederherstellen
 function archiveSection(r) {
   const os = state.data.objectives.filter((o) => o.ressortId === r.id && o.archivedAt).sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
   const ks = state.data.keyResults.filter((k) => k.ressortId === r.id && k.archivedAt).sort((a, b) => b.archivedAt.localeCompare(a.archivedAt));
   if (!os.length && !ks.length) return null;
   const archivedBy = (x) => el('td', { class: 'small' }, de(x.archivedAt), x.archivedBy ? el('div', { class: 'muted' }, 'von ' + x.archivedBy) : null);
   return el('section', { class: 'card' }, el('details', { class: 'archive' },
-    el('summary', { class: 'section-head' }, el('div', {}, el('h2', {}, `Archiv (${os.length + ks.length})`), el('div', { class: 'muted small' }, 'Archivierte Ziele und Schlüsselergebnisse – nur für Admins sichtbar'))),
+    el('summary', { class: 'section-head' }, el('div', {}, el('h2', {}, `Archiv (${os.length + ks.length})`), el('div', { class: 'muted small' }, 'Archivierte Ziele und Schlüsselergebnisse – nur für dein Ressort und Admins sichtbar'))),
     os.length ? el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
       el('thead', {}, el('tr', {}, ...['Ziel', 'Schlüsselergebnisse', 'Archiviert', ''].map((h) => el('th', {}, h)))),
       el('tbody', {}, ...os.map((o) => el('tr', {},
@@ -647,7 +647,7 @@ function modalObjectiveForm(o, ressortId) {
       el('div', { class: 'two' }, field('Frist', deadline), field('Ressort', ownerSel, isAdmin() ? (isNew ? null : 'Beim Wechsel wandern alle Schlüsselergebnisse mit; Abhängigkeiten ins alte Ressort werden gelöst.') : 'Zuordnung ändert nur ein Admin.')),
       !isNew ? el('div', { class: 'muted small' }, `${plural(ks.length, 'Schlüsselergebnis', 'Schlüsselergebnisse')} gehören zu diesem Ziel.`) : null],
     (close) => [
-      !isNew && isAdmin() && (ks.length
+      !isNew && (ks.length
         ? el('span', { class: 'muted small left', style: 'align-self:center' }, 'Archivieren erst ohne aktive Schlüsselergebnisse möglich.')
         : el('button', { class: 'btn danger left', onClick: () => confirm(`„${o.title}“ archivieren? Das Ziel verschwindet aus den Listen und lässt sich im Ressort unter „Archiv“ wiederherstellen.`) && act(() => api('DELETE', `/api/objectives/${o.id}`), 'Ziel archiviert').then(closeOn(close)) }, 'Archivieren')),
       cancelBtn(close),
@@ -729,7 +729,7 @@ function modalKrForm(k, obj) {
       ...masterData,
       el('details', { class: 'hist-box' }, el('summary', {}, `Historie (${k.history.length})`), ...historyItems(k))],
     (close) => [
-      !isNew && isAdmin() && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ archivieren? Das Schlüsselergebnis verschwindet aus den Listen und lässt sich im Ressort unter „Archiv“ wiederherstellen.`) && act(() => api('DELETE', `/api/key-results/${k.id}`), 'Schlüsselergebnis archiviert').then(closeOn(close)) }, 'Archivieren'),
+      !isNew && el('button', { class: 'btn danger left', onClick: () => confirm(`„${k.title}“ archivieren? Das Schlüsselergebnis verschwindet aus den Listen und lässt sich im Ressort unter „Archiv“ wiederherstellen.`) && act(() => api('DELETE', `/api/key-results/${k.id}`), 'Schlüsselergebnis archiviert').then(closeOn(close)) }, 'Archivieren'),
       cancelBtn(close),
       el('button', { class: 'btn', onClick: () => {
         if (!title.value.trim()) return alert('Bitte eine Bezeichnung angeben.');

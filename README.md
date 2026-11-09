@@ -48,7 +48,7 @@ Ohne `PORT` startet der Server auf 8080 – der Port ist auf diesem Mac schon be
 - **Rechte:** Alle sehen alle Ziele, Schlüsselergebnisse und Historien. Bearbeiten nur im eigenen Ressort; Ressort-Zuordnung ändert nur ein Admin
 - **Führungsressort** je Event – pflegt die Event-Ziele, hat sonst dieselben Rechte wie andere Ressorts
 - **Verwaltung** (Admin): Nutzer (freigeben, sperren, Rolle, Zuordnung, Einmal-Passwort), Events, Ressorts (bestätigen, zusammenführen)
-- **Archiv:** „Löschen“ archiviert Ziele und Schlüsselergebnisse nur; Admins sehen sie je Ressort unter „Archiv“ und können sie wiederherstellen. Ein Ziel lässt sich erst ohne aktive Schlüsselergebnisse archivieren
+- **Archiv:** „Löschen“ archiviert Ziele und Schlüsselergebnisse nur; Admins und Mitglieder des Ressorts sehen sie dort unter „Archiv“ und können sie wiederherstellen. Ein Ziel lässt sich erst ohne aktive Schlüsselergebnisse archivieren
 - Typen von Schlüsselergebnissen: **Anzahl** (Zielwert und Ist-Wert, automatisch erreicht) und **Ja/Nein** (von Hand abgehakt, auch für Meilensteine); Frist; Abhängigkeiten **nur innerhalb desselben Ressorts** (auch zwischen Zielen)
 - Ein Button je Schlüsselergebnis: **Bearbeiten** (✎) für eigene – Ist-Wert bzw. Ja/Nein, Erreicht-Datum, Kommentar, Stammdaten (inkl. Zielwechsel) und Historie in einem Dialog; bei fremden **Historie ansehen** (⟲). Der Autor kommt aus dem Login
 
@@ -64,11 +64,11 @@ Alle Endpunkte außer den öffentlichen brauchen eine Session (Cookie). Schreibe
 | GET / POST | `/api/auth/me` · `/api/auth/password` | Eigenes Konto, Passwort ändern | angemeldet |
 | GET | `/api/state` | Events, Ressorts, Ziele, Schlüsselergebnisse (für Admins plus Zahl offener Freigaben) | angemeldet |
 | POST/PUT | `/api/objectives[/:id]` | Ziel anlegen `{ressortId, title, description?, deadline?}` / bearbeiten (`ressortId` nur Admin) | eigenes Ressort |
-| DELETE / POST | `/api/objectives/:id` · `/restore` | Ziel **archivieren** (nur ohne aktive Schlüsselergebnisse) / wiederherstellen | Admin |
+| DELETE / POST | `/api/objectives/:id` · `/restore` | Ziel **archivieren** (nur ohne aktive Schlüsselergebnisse) / wiederherstellen | eigenes Ressort |
 | POST/PUT | `/api/key-results[/:id]` | Schlüsselergebnis anlegen `{objectiveId, title, type, target?, …}` / bearbeiten (Stammdaten, `objectiveId`, `current`, `achieved`, `achievedAt`, `note`) | eigenes Ressort |
 | POST | `/api/key-results/:id/value` · `/achieve` | Ist-Wert / Erreichung `{value, achieved, achievedAt, note}` | eigenes Ressort |
-| DELETE | `/api/key-results/:id` | Schlüsselergebnis **archivieren** (wird nicht gelöscht) | Admin |
-| POST | `/api/key-results/:id/restore` | Archiviertes Schlüsselergebnis wiederherstellen (Ziel muss aktiv sein) | Admin |
+| DELETE | `/api/key-results/:id` | Schlüsselergebnis **archivieren** (wird nicht gelöscht) | eigenes Ressort |
+| POST | `/api/key-results/:id/restore` | Archiviertes Schlüsselergebnis wiederherstellen (Ziel muss aktiv sein) | eigenes Ressort |
 | POST/PUT/DELETE | `/api/events[/:id]` · `/api/ressorts[/:id]` | Events, Ressorts | Admin |
 | POST | `/api/admin/ressorts/:id/merge` | Ressort in ein anderes überführen `{intoId}` | Admin |
 | GET/PUT/DELETE | `/api/admin/users[/:id]` | Nutzer verwalten | Admin |

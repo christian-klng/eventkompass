@@ -55,11 +55,11 @@ npm test                        # API-Tests, laufen ohne Docker
   wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
 - **Ziel (Objective):** `id, eventId, ressortId, title, description, deadline, archivedAt, archivedBy, createdAt, updatedAt`.
   Kein eigener Status: erreicht = alle aktiven Schlüsselergebnisse erreicht (und mindestens eins), Fortschritt = Durchschnitt.
-  Archivieren (Admin) nur ohne aktive Schlüsselergebnisse. Ressortwechsel (Admin) nimmt alle Schlüsselergebnisse mit.
+  Archivieren (wer das Ressort bearbeiten darf) nur ohne aktive Schlüsselergebnisse. Ressortwechsel (Admin) nimmt alle Schlüsselergebnisse mit.
 - **Schlüsselergebnis (Key Result):** `id, eventId, ressortId, objectiveId` (alle nie null; `ressortId`/`eventId` folgen dem Ziel),
   `title, description, type, target, current, unit, deadline, achieved, achievedAt, archivedAt, archivedBy, deps[], history[], createdAt, updatedAt`
-  - Werden nie gelöscht: `DELETE` setzt `archivedAt` (Admin), `POST …/restore` hebt es auf (nur wenn das Ziel nicht archiviert ist).
-    Archivierte sind nicht bearbeitbar, im Frontend nur im Ressort-Archiv (Admin) sichtbar (`activeKrs()`/`evKrs()` filtern sie heraus).
+  - Werden nie gelöscht: `DELETE` setzt `archivedAt`, `POST …/restore` hebt es auf (beides: wer das Ressort bearbeiten darf) (nur wenn das Ziel nicht archiviert ist).
+    Archivierte sind nicht bearbeitbar, im Frontend nur im Ressort-Archiv sichtbar (Admin und Mitglieder des Ressorts) (`activeKrs()`/`evKrs()` filtern sie heraus).
   - Nur zwei Typen: `number` (Anzahl, erreicht automatisch bei `current >= target`) und `bool` (Ja/Nein, von Hand, auch für Meilensteine).
     Frühere Typen `date`/`combo` migriert `migrate()` (v3) zu `bool`/`number`.
   - `deps` nur auf Schlüsselergebnisse mit gleicher `ressortId` (`cleanDeps()`), auch über Ziele hinweg; ein Ressortwechsel
@@ -79,8 +79,8 @@ npm test                        # API-Tests, laufen ohne Docker
 ## Rechte (Server ist maßgeblich, UI blendet nur aus)
 
 - `canEditRessort(user, ressortId)`: Admin oder `user.ressortId === ressortId`. Gilt für Ziele und Schlüsselergebnisse
-  (Anlegen, Wert, Erreichung, Stammdaten) – das Ressort eines Schlüsselergebnisses ist das seines Ziels.
-- Nur Admin: Ziel/Schlüsselergebnis archivieren/wiederherstellen, einem anderen Ressort zuordnen, Events/Ressorts verwalten,
+  (Anlegen, Wert, Erreichung, Stammdaten, Archivieren/Wiederherstellen) – das Ressort eines Schlüsselergebnisses ist das seines Ziels.
+- Nur Admin: Ziel/Schlüsselergebnis einem anderen Ressort zuordnen, Events/Ressorts verwalten,
   `/api/admin/*`, `/api/reset` (+ `ALLOW_RESET`).
 - Das Führungsressort hat **keine** Sonderrechte – es pflegt nur seine eigenen (Event-)Ziele.
 - Ressorts und Events lassen sich nur löschen, wenn sie keine Ziele/Schlüsselergebnisse (auch archivierte) haben – Ressorts vorher zusammenführen.
