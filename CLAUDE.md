@@ -4,12 +4,13 @@ Projektnotizen für Claude Code. Sprache im Projekt (UI, Kommentare, Fehlermeldu
 
 ## Was ist das?
 
-**Eventkompass** – OKR-Tracker für Events (v0.3).
+**Eventkompass** – OKR-Tracker für Events (v0.4).
 Ein Event hat Ressorts (eins davon ist das **Führungsressort** mit den Event-Zielen). Jedes Ressort hat beliebig viele
 **Ziele** (Objectives), jedes Ziel beliebig viele **Schlüsselergebnisse** (Key Results) mit Zielwert, Ist-Wert, Frist,
 Abhängigkeiten (nur im selben Ressort) und Änderungshistorie. Fortschritt und Erreichung eines Ziels ergeben sich aus
 seinen Schlüsselergebnissen. Nutzer registrieren sich mit Event + Ressort und dürfen nur Ziele/Schlüsselergebnisse ihres
-eigenen Ressorts bearbeiten, alle sehen alles.
+eigenen Ressorts bearbeiten, alle sehen alles. Die Startseite ist der **Pflege-Check**: Sind Ziele gut formuliert
+(mind. 5 Wörter), Schlüsselergebnisse quantitativ (Anzahl mit Zielwert) und wird jede Woche (Mo–So) der Stand eingetragen?
 
 Wording (UI, Code-Kommentare, Doku): **Ziel** = Objective, **Schlüsselergebnis** = Key Result, **Zielwert** = `target`
 eines Schlüsselergebnisses. „Kennzahl“/„KPI“ nicht mehr verwenden.
@@ -25,7 +26,9 @@ Plan und offene Punkte: `PLAN.md`.
   - `lib/store.js` – JSON-Speicher + `migrate()` (läuft bei jedem Start, muss idempotent bleiben)
   - `lib/auth.js` – scrypt-Passwörter, Session-Tokens, Cookies, Login-Bremse
 - **Frontend:** Vanilla JS ohne Build: `public/index.html`, `public/app.js`, `public/style.css`
-- **Demo-Daten:** `seed.js` · **Tests:** `test/api.test.js` (`npm test`, `node:test`, startet die App mit Temp-Ordner)
+  - `public/check.js` – Prüfregeln des Pflege-Checks (reine Funktionen, `globalThis.Check`), vor `app.js` geladen
+- **Demo-Daten:** `seed.js` · **Tests:** `test/api.test.js` (`npm test`, `node:test`, startet die App mit Temp-Ordner),
+  `test/check.test.js` (Prüfregeln, lädt `public/check.js` per `import`)
 
 ## Lokal starten (OrbStack / Docker)
 
@@ -46,11 +49,13 @@ npm test                        # API-Tests, laufen ohne Docker
   Beim Start loggt die App, ob und welche Admins existieren.
 - Container läuft als `node` (nicht root); Dockerfile macht `/app` lesbar, weil lokale Dateien teils Rechte 600 haben.
 
-## Daten (`data/data.json`, `version: 4`)
+## Daten (`data/data.json`, `version: 5`)
 
 - Nicht von Hand ändern, während der Container läuft (Zustand liegt im Speicher und wird komplett überschrieben).
 - `{ version, events, ressorts, objectives, keyResults, users, sessions, invites, settings }` – `GET /api/state` gibt **nur**
   events/ressorts/objectives/keyResults heraus, nie `users`, `sessions` oder Passwort-Hashes. Nutzer nach außen immer über `publicUser()`.
+- **Event:** `id, name, startDate, endDate, trackingStart, createdAt`. `trackingStart` = Montag, ab dem der Pflege-Check
+  Wochen zählt (Woche 1); Admin stellt ihn ein, der Server rundet auf Montag, Standard = laufende Woche (Migration v5).
 - **Ressort:** `id, eventId, name, color, isLead, unreviewed, createdAt` (keine „Leitung“ – wer pflegt, ergibt sich aus der Nutzer-Zuordnung). Je Event genau ein `isLead` (nicht löschbar,
   wird mit dem Event angelegt). `unreviewed` = per Freitext bei automatischer Freischaltung entstanden.
 - **Ziel (Objective):** `id, eventId, ressortId, title, description, deadline, archivedAt, archivedBy, createdAt, updatedAt`.
@@ -61,7 +66,9 @@ npm test                        # API-Tests, laufen ohne Docker
   - Werden nie gelöscht: `DELETE` setzt `archivedAt`, `POST …/restore` hebt es auf (beides: wer das Ressort bearbeiten darf) (nur wenn das Ziel nicht archiviert ist).
     Archivierte sind nicht bearbeitbar, im Frontend nur im Ressort-Archiv sichtbar (Admin und Mitglieder des Ressorts) (`activeKrs()`/`evKrs()` filtern sie heraus).
   - Nur zwei Typen: `number` (Anzahl, erreicht automatisch bei `current >= target`) und `bool` (Ja/Nein, von Hand, auch für Meilensteine).
-    Frühere Typen `date`/`combo` migriert `migrate()` (v3) zu `bool`/`number`.
+    Frühere Typen `date`/`combo` migriert `migrate()` (v3) zu `bool`/`number`. Typwechsel per `PUT` nur `bool` → `number`
+    (Zielwert Pflicht; war es erreicht, wird `current = target`), nie zurück.
+  - `POST …/confirm` `{ note? }` → Historie „Stand bestätigt“ (Stand unverändert, zählt im Pflege-Check als Aktualisierung).
   - `deps` nur auf Schlüsselergebnisse mit gleicher `ressortId` (`cleanDeps()`), auch über Ziele hinweg; ein Ressortwechsel
     löst Abhängigkeiten in beide Richtungen
   - Zielwechsel per `PUT` mit `objectiveId`: innerhalb des Ressorts jeder Berechtigte, in ein anderes Ressort nur Admin
@@ -97,7 +104,11 @@ npm test                        # API-Tests, laufen ohne Docker
   `modalObjectiveForm(o, ressortId)` legt an/bearbeitet. Schlüsselergebnis-Zeilen haben genau einen Button: `modalKrForm(k, objective)`
   (eigene: Stand, Stammdaten inkl. Zielauswahl, Historie; speichert alles per `PUT /api/key-results/:id`) oder `modalHistory(k)` (fremde, nur lesen).
 - Status/Fortschritt: `status(k)`/`pct(k)` je Schlüsselergebnis, `objStatus(o)`/`objAchieved(o)`/`avgPct()` je Ziel.
-- Ansichten: `overview`, `ressort`, `admin` (Reiter Nutzer / Events / Ressorts). Anmeldung: `showAuth('login'|'register'|'pending'|'password')`.
+- Pflege-Check (`renderOverview()` → `checkSection(r, wk)` je Ressort): `Check.objectiveIssue(o)`/`Check.krIssue(k)` (rot),
+  `Check.eventWeeks(ev)` (Spalten), `Check.krWeekStates(k, weeks)` (`ok|stale|invalid|none|future`), `Check.isMaintained(k, week)`.
+  Als gepflegt zählen die Historien-Arten in `Check.UPDATE_KINDS` (nicht „Stammdaten geändert“), die Woche des Anlegens
+  und jede Woche ab der Erreichung. Rot in der Wochenzelle nur für die laufende Woche. Wochen in Ortszeit des Browsers.
+- Ansichten: `overview` (Pflege-Check), `ressort` (Zielerreichung), `admin` (Reiter Nutzer / Events / Ressorts). Anmeldung: `showAuth('login'|'register'|'pending'|'password')`.
 - `api()` leitet bei 401 bzw. `PASSWORD_CHANGE_REQUIRED` selbst zur Anmeldung um (Fehler mit `silent`).
 - Zahlen/Daten deutsch formatieren (`toLocaleString('de-DE')`, `de()`, `deTime()`).
 

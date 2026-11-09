@@ -369,54 +369,97 @@ function objectiveBlock(o, opts = {}) {
     krTable(ks, { empty: editable ? 'Noch keine Schlüsselergebnisse – mit „+ Schlüsselergebnis“ anlegen.' : 'Noch keine Schlüsselergebnisse.' }));
 }
 
+// ---------- Startseite: Pflege-Check ----------
+// Nicht ob Ziele erreicht werden, sondern ob sie sauber formuliert sind und jede Woche der Stand eingetragen wird.
+const WEEK_STATE = {
+  ok: { label: 'gepflegt', glyph: '✓' },
+  stale: { label: 'nicht aktualisiert', glyph: '!' },
+  invalid: { label: 'Formulierung prüfen', glyph: '✕' },
+  none: { label: 'noch nicht angelegt', glyph: '' },
+  future: { label: 'kommende Woche', glyph: '' },
+};
+const shortDate = (iso) => iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.';
+const weekLabel = (w) => `W${w.index} · KW ${w.kw} (${shortDate(w.from)}–${shortDate(w.to)})`;
+// Auf dem Smartphone entfällt die Spalte „Formulierung“ – der Hinweis steht dann unter dem Titel.
+const checkInline = (issue) => (issue ? el('span', { class: 'check-inline', title: issue.text }, '✕ ' + issue.label) : null);
+const checkBadge = (issue) => issue
+  ? el('span', { class: 'check-badge bad', title: issue.text }, '✕ ' + issue.label)
+  : el('span', { class: 'check-badge ok' }, '✓ ok');
+
 function renderOverview(main) {
-  const ev = curEvent(); const ks = evKrs(); const lead = leadRessort();
-  const os = evObjectives();
-  const rs = evRessorts().filter((r) => !r.isLead);
-  const done = ks.filter((k) => k.achieved).length;
-  const total = avgPct(ks);
-  const circ = 2 * Math.PI * 28;
-  const leadOs = lead ? objectivesOf(lead.id) : [];
+  const ev = curEvent();
+  const wk = Check.eventWeeks(ev);
+  const os = evObjectives(); const ks = evKrs();
+  const fresh = ks.filter((k) => Check.isMaintained(k, wk.current)).length;
+  const short = os.filter((o) => Check.objectiveIssue(o)).length;
+  const vague = ks.filter((k) => Check.krIssue(k)).length;
+  const lead = leadRessort();
   append(main,
     el('div', { class: 'head-row' },
-      el('div', {}, el('div', { class: 'muted small strong' }, 'Event · ' + ev.name), el('h1', {}, 'Zielerreichung gesamt')),
-      lead && canEditRessort(lead.id) ? el('div', { style: 'display:flex;gap:8px' }, el('button', { class: 'btn', onClick: () => modalObjectiveForm(null, lead.id) }, '+ Event-Ziel')) : null),
+      el('div', {}, el('div', { class: 'muted small strong' }, 'Event · ' + ev.name), el('h1', {}, 'Pflege-Check'),
+        el('div', { class: 'muted', style: 'font-size:13px;margin-top:4px' }, 'Sind Ziele und Schlüsselergebnisse gut formuliert und jede Woche aktuell?')),
+      el('div', { class: 'week-now' }, wk.current
+        ? [el('div', { class: 'strong' }, `Woche ${wk.current.index} von ${wk.weeks.length}`), el('div', { class: 'muted small' }, `KW ${wk.current.kw} · ${de(wk.current.from)} – ${de(wk.current.to)}`)]
+        : [el('div', { class: 'strong' }, 'Wochenzählung noch nicht gestartet'), el('div', { class: 'muted small' }, 'Beginnt am ' + de(wk.start))])),
     el('div', { class: 'grid grid-4' },
-      el('div', { class: 'card ring-card' },
-        svgEl(`<svg width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="Gesamtfortschritt ${total} Prozent"><circle cx="36" cy="36" r="28" fill="none" stroke="#E5E7EB" stroke-width="8"/><circle cx="36" cy="36" r="28" fill="none" stroke="#4F46E5" stroke-width="8" stroke-linecap="round" stroke-dasharray="${(total / 100) * circ} ${circ}" transform="rotate(-90 36 36)"/><text x="36" y="41" text-anchor="middle" font-size="15" font-weight="700" fill="#111827" font-family="Inter,sans-serif">${total}%</text></svg>`),
-        el('div', {}, el('div', { class: 'muted small' }, 'Gesamt'), el('div', { class: 'strong', style: 'font-size:13px' }, `${done} von ${ks.length} Schlüsselergebnissen`))),
-      stat('Ziele', os.length, `${os.filter((o) => objAchieved(o)).length} erreicht`, 'var(--accent)'),
-      stat('Schlüsselergebnisse erreicht', done, `von ${ks.length}`, 'var(--ok)'),
-      stat('Gefährdet / überfällig', ks.filter(atRisk).length, 'Schlüsselergebnisse brauchen Aufmerksamkeit', 'var(--warn)')),
-    el('section', {},
-      el('div', { class: 'head-row', style: 'margin-bottom:12px' }, el('div', {}, el('h2', {}, 'Event-Ziele'), el('div', { class: 'muted small' }, lead ? `Übergeordnete Ziele des Events – gepflegt vom Ressort „${lead.name}“` : 'Übergeordnete Ziele des Events'))),
-      el('div', { class: 'stack' }, ...leadOs.map(objectiveBlock), !leadOs.length && el('div', { class: 'card empty' }, 'Noch keine Event-Ziele.'))),
-    el('section', {},
-      el('div', { class: 'head-row', style: 'margin-bottom:12px' }, el('h2', {}, 'Ressorts'), isAdmin() ? el('button', { class: 'btn ghost small-btn', onClick: () => modalRessortForm(null) }, '+ Ressort') : null),
-      el('div', { class: 'grid grid-3' }, ...rs.map(ressortCard), !rs.length && el('div', { class: 'card empty' }, 'Noch keine Ressorts.')))
+      stat('Diese Woche gepflegt', `${fresh}/${ks.length}`, 'Schlüsselergebnisse mit Wert, Kommentar oder Bestätigung', 'var(--ok)'),
+      stat('Noch nicht aktualisiert', ks.length - fresh, wk.current ? `in KW ${wk.current.kw} – bis Sonntag eintragen` : 'Zählung startet später', 'var(--warn)'),
+      stat('Ziele zu kurz', short, `von ${plural(os.length, 'Ziel', 'Zielen')} · mindestens ${Check.MIN_WORDS} Wörter`, 'var(--crit)'),
+      stat('Nicht quantitativ', vague, `von ${plural(ks.length, 'Schlüsselergebnis', 'Schlüsselergebnissen')} · Anzahl mit Zielwert`, 'var(--crit)')),
+    el('div', { class: 'legend muted small' },
+      ...['ok', 'stale', 'invalid', 'future'].map((s) => el('span', {}, el('span', { class: 'wcell ' + s, 'aria-hidden': 'true' }, WEEK_STATE[s].glyph), WEEK_STATE[s].label)),
+      el('span', {}, 'Rot in der Woche gilt nur für die laufende Woche; Ziele ohne Wochenspalten.')),
+    ...evRessorts().map((r) => checkSection(r, wk)),
+    lead && canEditRessort(lead.id) && !objectivesOf(lead.id).length ? el('div', { class: 'muted small' }, 'Die Event-Ziele legst du im Ressort „' + lead.name + '“ an.') : null
   );
+  // Laufende Woche ins Bild holen, falls die Tabelle seitlich scrollt
+  requestAnimationFrame(() => document.querySelectorAll('.check-wrap').forEach((wrap) => {
+    const th = $('th.current', wrap);
+    if (th) wrap.scrollLeft = Math.max(0, th.offsetLeft + th.offsetWidth - wrap.clientWidth + 80);
+  }));
 }
-function stat(label, value, hint, color) {
-  return el('div', { class: 'card stat' }, el('div', { class: 'label' }, dot(color, true), label), el('div', { class: 'value num' }, value), el('div', { class: 'muted small' }, hint));
-}
-function svgEl(str) { const t = document.createElement('template'); t.innerHTML = str.trim(); return t.content.firstElementChild; }
-function ressortCard(r) {
+
+function checkSection(r, wk) {
   const os = objectivesOf(r.id);
   const ks = evKrs().filter((k) => k.ressortId === r.id);
-  const done = os.filter((o) => objAchieved(o)).length;
-  const p = avgPct(ks);
-  const risky = ks.filter(atRisk).length;
-  const blocked = ks.filter((k) => !k.achieved && openDeps(k).length).length;
-  const badges = [];
-  if (risky) badges.push(pill({ key: 'risk', label: risky + ' gefährdet' }));
-  if (blocked) badges.push(pill({ key: 'crit', label: blocked + ' blockiert' }));
-  if (!risky && !blocked && ks.length) badges.push(pill({ key: 'done', label: 'alles im Plan' }));
-  if (!os.length) badges.push(pill({ key: 'open', label: 'noch keine Ziele' }));
-  return el('button', { class: 'card ressort-card', onClick: () => go('ressort', r.id) },
-    el('div', { class: 'top' }, dot(r.color), el('span', { class: 'name' }, r.name)),
-    el('div', { style: 'display:flex;justify-content:space-between' }, el('span', { class: 'muted small' }, `${plural(os.length, 'Ziel', 'Ziele')} · ${done} erreicht · ${plural(ks.length, 'Schlüsselergebnis', 'Schlüsselergebnisse')}`), el('span', { class: 'strong num' }, p + '%')),
-    el('div', { class: 'bar' }, el('div', { class: 'bar-fill', style: `width:${p}%;background:${r.color}` })),
-    el('div', { class: 'chips' }, ...badges));
+  const weeks = wk.weeks;
+  const open = ks.filter((k) => !Check.isMaintained(k, wk.current)).length;
+  const short = os.filter((o) => Check.objectiveIssue(o)).length;
+  const vague = ks.filter((k) => Check.krIssue(k)).length;
+  const notes = [wk.current && open ? `${open} diese Woche offen` : null, short ? plural(short, 'Ziel zu kurz', 'Ziele zu kurz') : null, vague ? `${vague} nicht quantitativ` : null].filter(Boolean);
+  const summary = el('span', { class: 'check-summary ' + (notes.length ? 'bad' : 'ok') }, notes.length ? notes.join(' · ') : ks.length ? '✓ alles gepflegt' : '');
+
+  const head = el('tr', {}, el('th', {}, 'Ziel / Schlüsselergebnis'), el('th', {}, 'Formulierung'),
+    ...weeks.map((w) => el('th', { class: 'wk ' + w.when, title: weekLabel(w) }, el('div', {}, 'W' + w.index), el('div', { class: 'kw' }, 'KW ' + w.kw))));
+  const rows = [];
+  for (const o of os) {
+    const oks = krsOf(o);
+    rows.push(el('tr', { class: 'obj-row' },
+      el('td', {}, canEditObjective(o) ? el('button', { class: 'row-link strong', onClick: () => modalObjectiveForm(o), title: 'Ziel bearbeiten' }, o.title) : el('span', { class: 'strong' }, o.title), checkInline(Check.objectiveIssue(o))),
+      el('td', {}, checkBadge(Check.objectiveIssue(o))),
+      weeks.length ? el('td', { colspan: weeks.length, class: 'muted small' }, oks.length ? '' : 'noch keine Schlüsselergebnisse') : null));
+    for (const k of oks) {
+      const states = Check.krWeekStates(k, weeks);
+      rows.push(el('tr', { class: 'kr-row' },
+        el('td', {}, el('button', { class: 'row-link', onClick: () => (canEditKr(k) ? modalKrForm(k) : modalHistory(k)), title: canEditKr(k) ? 'Bearbeiten' : 'Historie ansehen' },
+          el('span', { class: 'kr-name' }, k.title), el('span', { class: 'muted small' }, isNum(k) ? 'Zielwert ' + targetLabel(k) : 'Ja / Nein · ' + targetLabel(k))), checkInline(Check.krIssue(k))),
+        el('td', {}, checkBadge(Check.krIssue(k))),
+        ...states.map((s, i) => el('td', { class: 'wk ' + weeks[i].when },
+          s === 'none' ? null : el('span', { class: 'wcell ' + s, role: 'img', title: `${weekLabel(weeks[i])}: ${WEEK_STATE[s].label}`, 'aria-label': `${weekLabel(weeks[i])}: ${WEEK_STATE[s].label}` }, WEEK_STATE[s].glyph)))));
+    }
+  }
+  if (!os.length) rows.push(el('tr', {}, el('td', { colspan: 2 + weeks.length, class: 'empty' }, canEditRessort(r.id) ? 'Noch keine Ziele – in der Ressort-Ansicht mit „+ Ziel“ anlegen.' : 'Noch keine Ziele.')));
+  return el('section', { class: 'card check-ressort' },
+    el('div', { class: 'section-head' },
+      el('div', { class: 'with-dot' }, dot(r.color), el('button', { class: 'row-link', onClick: () => go('ressort', r.id) }, el('h2', {}, r.name)), r.isLead ? el('span', { class: 'chip lead' }, 'Event-Ziele') : null),
+      summary),
+    el('div', { class: 'check-wrap' }, el('table', { class: 'check-table', style: '--weeks:' + weeks.length },
+      el('colgroup', {}, el('col', { class: 'c-title' }), el('col', { class: 'c-form' }), ...weeks.map(() => el('col', { class: 'c-wk' }))),
+      el('thead', {}, head), el('tbody', {}, ...rows))));
+}
+
+function stat(label, value, hint, color) {
+  return el('div', { class: 'card stat' }, el('div', { class: 'label' }, dot(color, true), label), el('div', { class: 'value num' }, value), el('div', { class: 'muted small' }, hint));
 }
 
 function renderRessort(main) {
@@ -566,12 +609,12 @@ function adminEvents(main) {
   main.append(el('section', { class: 'card' },
     el('div', { class: 'section-head' }, el('h2', {}, `Events (${state.data.events.length})`), el('button', { class: 'btn small-btn', onClick: () => modalEventForm(null) }, '+ Event')),
     el('div', { class: 'table-wrap' }, el('table', { class: 'admin-table' },
-      el('thead', {}, el('tr', {}, ...['Name', 'Beginn', 'Ende', 'Ressorts', 'Ziele', 'Schlüsselergebnisse', 'Nutzer', ''].map((h) => el('th', {}, h)))),
+      el('thead', {}, el('tr', {}, ...['Name', 'Beginn', 'Ende', 'Wochen ab', 'Ressorts', 'Ziele', 'Schlüsselergebnisse', 'Nutzer', ''].map((h) => el('th', {}, h)))),
       el('tbody', {}, ...(state.data.events.length ? state.data.events.map((ev) => el('tr', {},
-        el('td', { class: 'strong' }, ev.name), el('td', {}, de(ev.startDate)), el('td', {}, de(ev.endDate)),
+        el('td', { class: 'strong' }, ev.name), el('td', {}, de(ev.startDate)), el('td', {}, de(ev.endDate)), el('td', {}, ev.trackingStart ? `${de(ev.trackingStart)} (KW ${Check.isoWeek(ev.trackingStart)})` : '–'),
         el('td', { class: 'num' }, count(state.data.ressorts, ev)), el('td', { class: 'num' }, count(activeObjectives(), ev)), el('td', { class: 'num' }, count(activeKrs(), ev)), el('td', { class: 'num' }, count(state.users, ev)),
         el('td', { class: 'actions' }, el('button', { class: 'btn ghost small-btn', onClick: () => modalEventForm(ev) }, 'Bearbeiten'))))
-        : [el('tr', {}, el('td', { colspan: 8, class: 'empty' }, 'Noch keine Events.'))]))))));
+        : [el('tr', {}, el('td', { colspan: 9, class: 'empty' }, 'Noch keine Events.'))]))))));
 }
 
 function adminRessorts(main) {
@@ -641,8 +684,16 @@ function modalObjectiveForm(o, ressortId) {
   const ownerSel = el('select', { id: 'o-owner', disabled: !isAdmin() }, ...evRessorts().map((r) => el('option', { value: r.id, selected: rid === r.id }, r.name + (r.isLead ? ' (Event-Ziele)' : ''))));
   const ks = isNew ? [] : krsOf(o);
   const payload = () => ({ title: title.value.trim(), description: desc.value, deadline: deadline.value || null, ...(isAdmin() ? { ressortId: ownerSel.value } : {}) });
+  // Pflege-Check: Ein Ziel braucht mindestens fünf Wörter – live mitzählen.
+  const words = el('span', { class: 'word-count' });
+  const countWords = () => {
+    const n = Check.wordCount(title.value);
+    words.className = 'word-count ' + (n >= Check.MIN_WORDS ? 'ok' : 'bad');
+    words.textContent = `${n === 1 ? '1 Wort' : n + ' Wörter'} (mindestens ${Check.MIN_WORDS}).`;
+  };
+  title.addEventListener('input', countWords); countWords();
   openModal(isNew ? 'Neues Ziel' : o.title, isNew ? ressort(rid).name + ' · Ziel anlegen' : ressort(rid).name + ' · Ziel bearbeiten',
-    [field('Bezeichnung', title, 'Ein Ziel beschreibt, was erreicht sein soll – die Schlüsselergebnisse machen es messbar.'),
+    [field('Bezeichnung', title, [words, ' Ein Ziel beschreibt als ganzer Satz, was am Ende anders sein soll – die Schlüsselergebnisse machen es messbar.']),
       field('Beschreibung', desc),
       el('div', { class: 'two' }, field('Frist', deadline), field('Ressort', ownerSel, isAdmin() ? (isNew ? null : 'Beim Wechsel wandern alle Schlüsselergebnisse mit; Abhängigkeiten ins alte Ressort werden gelöst.') : 'Zuordnung ändert nur ein Admin.')),
       !isNew ? el('div', { class: 'muted small' }, `${plural(ks.length, 'Schlüsselergebnis', 'Schlüsselergebnisse')} gehören zu diesem Ziel.`) : null],
@@ -662,7 +713,7 @@ function modalKrForm(k, obj) {
   const o0 = isNew ? obj : objective(k.objectiveId);
   const title = inp('k-title', { value: k?.title || '', placeholder: 'z. B. Verkaufte Tickets' });
   const type = el('select', { id: 'k-type' }, ...Object.entries(TYPE_LABEL).map(([v, l]) => el('option', { value: v, selected: (k?.type || 'number') === v }, l)));
-  const target = inp('k-target', { type: 'number', step: 'any', value: k ? k.target : '' });
+  const target = inp('k-target', { type: 'number', step: 'any', value: k && isNum(k) ? k.target : '' });
   const unit = inp('k-unit', { value: k?.unit || '', placeholder: 'Tickets, €, Speaker …' });
   const current = inp('k-current', { type: 'number', step: 'any', value: k ? k.current : 0 });
   const deadline = inp('k-deadline', { type: 'date', value: k?.deadline || '' });
@@ -707,21 +758,37 @@ function modalKrForm(k, obj) {
     depsWarn.textContent = `Hinweis: ${od.length} Voraussetzung(en) noch offen (${od.map((d) => d.title).join(', ')}). Die Erreichung kann trotzdem eingetragen werden.`;
   }
   [type, target, current].forEach((x) => x.addEventListener('input', sync));
+  // Ja/Nein lässt sich einmalig auf Anzahl umstellen (bereits erreicht → Ist-Wert = Zielwert). Andersherum nicht.
+  const converting = () => !isNew && k.type === 'bool' && type.value === 'number';
+  type.addEventListener('change', () => { if (converting()) { current.value = form.yes ? target.value : 0; sync(); } });
+  target.addEventListener('input', () => { if (converting() && form.yes) { current.value = target.value; sync(); } });
   sync();
-  if (!isNew) type.disabled = true;
+  if (!isNew && k.type !== 'bool') type.disabled = true;
+  const boolWarn = el('div', { class: 'warn-box' }, 'Ja / Nein gilt im Pflege-Check als nicht messbar (rot). Besser als Anzahl mit Zielwert formulieren – z. B. „3 von 3 Pressemitteilungen veröffentlicht“.');
+  const syncBoolWarn = () => { boolWarn.hidden = type.value !== 'bool'; };
+  type.addEventListener('input', syncBoolWarn); syncBoolWarn();
+
+  // Pflege-Check: Ist der Stand diese Woche schon eingetragen? Sonst „unverändert bestätigen“.
+  let closeModal = () => {};
+  const week = !isNew ? Check.eventWeeks(eventById(k.eventId) || {}).current : null;
+  const fresh = week && Check.isMaintained(k, week);
+  const checkState = !isNew && week ? el('div', { class: 'check-state ' + (fresh ? 'ok' : 'stale') },
+    el('span', {}, fresh ? `✓ Stand für KW ${week.kw} ist eingetragen.` : `! Für KW ${week.kw} ist noch kein Stand eingetragen.`),
+    el('button', { type: 'button', class: 'btn ghost small-btn', onClick: () => act(() => api('POST', `/api/key-results/${k.id}/confirm`, { note: note.value }), 'Stand bestätigt').then(closeOn(closeModal)) }, 'Stand unverändert bestätigen')) : null;
 
   const payload = () => ({ title: title.value.trim(), type: type.value, target: target.value, unit: unit.value.trim(), current: current.value, deadline: deadline.value || null, objectiveId: objSel.value, description: desc.value,
     deps: [...depsBox.querySelectorAll('input:checked')].map((c) => c.value).concat(selObjective().ressortId === k?.ressortId ? k.deps.filter((d) => byId(d)?.archivedAt) : []),
     ...(isNew ? {} : { achieved: form.yes, achievedAt: dateField.hidden ? undefined : achievedAt.value, note: note.value }) });
   const masterData = [field('Bezeichnung', title),
-    el('div', { class: 'two' }, field('Typ', type, isNew ? null : 'Der Typ ist nach dem Anlegen fest.'), field('Ziel', objSel, isAdmin() ? null : 'Ziele anderer Ressorts ordnet nur ein Admin zu.')),
-    numFields, isNew ? curField : null,
+    el('div', { class: 'two' }, field('Typ', type, isNew ? null : k.type === 'bool' ? 'Lässt sich auf Anzahl umstellen, die Historie bleibt.' : 'Der Typ ist nach dem Anlegen fest.'), field('Ziel', objSel, isAdmin() ? null : 'Ziele anderer Ressorts ordnet nur ein Admin zu.')),
+    boolWarn, numFields, isNew ? curField : null,
     field('Frist', deadline),
     field('Beschreibung', desc),
     el('div', { class: 'field' }, el('label', {}, 'Abhängig von ', el('span', {}, '(Voraussetzungen aus demselben Ressort)')), depsBox)];
-  openModal(isNew ? 'Neues Schlüsselergebnis' : k.title, isNew ? `${ressort(o0.ressortId).name} · ${o0.title}` : `${owner(k)} · ${o0?.title || ''} · bearbeiten`,
+  closeModal = openModal(isNew ? 'Neues Schlüsselergebnis' : k.title, isNew ? `${ressort(o0.ressortId).name} · ${o0.title}` : `${owner(k)} · ${o0?.title || ''} · bearbeiten`,
     isNew ? masterData : [
       el('div', { class: 'sec-label' }, 'Aktueller Stand'),
+      checkState,
       el('div', { class: 'two' }, curField, boolField, infoBox('Zielwert', targetLabel(k))),
       dateField, depsWarn,
       field('Kommentar', note, 'Erscheint in der Historie, auch ohne andere Änderung.'),
@@ -769,9 +836,11 @@ function modalEventForm(ev) {
   const name = inp('e-name', { value: ev?.name || '', placeholder: 'z. B. Summit 2027' });
   const start = inp('e-start', { type: 'date', value: ev?.startDate || '' });
   const end = inp('e-end', { type: 'date', value: ev?.endDate || '' });
-  const payload = () => ({ name: name.value.trim(), startDate: start.value || null, endDate: end.value || null });
+  const tracking = inp('e-tracking', { type: 'date', value: ev?.trackingStart || Check.mondayOf(Check.localDay(new Date().toISOString())) });
+  const payload = () => ({ name: name.value.trim(), startDate: start.value || null, endDate: end.value || null, trackingStart: tracking.value || undefined });
   openModal(isNew ? 'Neues Event' : ev.name, isNew ? 'Event anlegen' : 'Event bearbeiten',
     [field('Name', name), el('div', { class: 'two' }, field('Beginn', start), field('Ende', end)),
+      field('Wochenzählung ab', tracking, 'Woche 1 des Pflege-Checks. Wird auf den Montag der gewählten Woche gesetzt; gezählt wird bis zum Eventende.'),
       isNew ? el('div', { class: 'muted small' }, 'Das Führungsressort für die Event-Ziele wird automatisch angelegt.') : null],
     (close) => [
       !isNew && (contentCount((x) => x.eventId === ev.id)

@@ -1,8 +1,9 @@
 // Demo-Daten für den ersten Start. Werden nur geschrieben, wenn noch keine data.json existiert.
 // Jedes Ressort hat Ziele, jedes Ziel Schlüsselergebnisse. Abhängigkeiten nur innerhalb eines Ressorts;
-// die Event-Ziele gehören dem Führungsressort.
+// die Event-Ziele gehören dem Führungsressort. Für den Pflege-Check zählen die Wochen ab KW 42/2026; ein zu kurzes Ziel,
+// Ja/Nein-Ergebnisse und Lücken in der Historie zeigen alle Farben.
 export function seedState() {
-  const ev = { id: 'ev-summit-2027', name: 'Summit 2027', startDate: '2027-03-15', endDate: '2027-03-16', createdAt: '2026-09-01T09:00:00.000Z' };
+  const ev = { id: 'ev-summit-2027', name: 'Summit 2027', startDate: '2027-03-15', endDate: '2027-03-16', trackingStart: '2026-10-12', createdAt: '2026-09-01T09:00:00.000Z' };
   const AT = '2026-09-01T09:00:00.000Z';
   const R = (id, name, color, isLead = false) => ({ id, eventId: ev.id, name, color, isLead, unreviewed: false, createdAt: AT });
   const ressorts = [
@@ -18,6 +19,7 @@ export function seedState() {
     O('o-wirtschaft', 'r-fuehrung', 'Der Summit trägt sich wirtschaftlich selbst', 'Ticket- und Sponsoringerlöse decken die Kosten – ohne Zuschuss.', '2027-02-28'),
     O('o-reichweite', 'r-marketing', 'Der Summit ist in der Branche sichtbar und begehrt', 'Reichweite und Nachfrage so aufbauen, dass der Vorverkauf zieht.', '2027-03-01'),
     O('o-partner', 'r-sponsoring', 'Starke Partner stehen hinter dem Summit', 'Sponsoring-Paket überzeugt, Gold-Partner sind an Bord.', '2026-12-15'),
+    O('o-community', 'r-marketing', 'Community aufbauen', 'Regelmäßige Treffen vor dem Summit.', '2027-03-01'),
     O('o-programm', 'r-programm', 'Ein Programm, für das man anreist', 'Hochkarätige Speaker und eine Keynote mit Strahlkraft.', '2026-12-15'),
     O('o-infrastruktur', 'r-technik', 'Location und Technik laufen reibungslos', 'Vertrag, Shop und Streaming stehen rechtzeitig und getestet.', '2027-02-15'),
     O('o-teilnehmer', 'r-teilnehmer', 'Teilnehmende fühlen sich vom ersten Klick an gut betreut', 'Registrierung und Verpflegung ohne Reibung.', '2026-11-15'),
@@ -33,13 +35,15 @@ export function seedState() {
   };
   const keyResults = [
     K('k-tickets', 'o-wirtschaft', 'Verkaufte Tickets', 'number', 1200, 860, 'Tickets', '2027-03-14', null, [],
-      [H('2026-10-28', 'Lena H.', '790 Tickets', '860 Tickets', 'Early-Bird-Welle 2 läuft gut.'), H('2026-10-14', 'Lena H.', '610 Tickets', '790 Tickets'), H('2026-09-01', 'Christian K.', '–', '1.200 Tickets', 'Zielwert festgelegt', 'Angelegt')]),
+      [H('2026-11-04', 'Lena H.', '860 Tickets', '860 Tickets', 'Ruhige Woche, keine neuen Verkäufe.', 'Stand bestätigt'), H('2026-10-28', 'Lena H.', '790 Tickets', '860 Tickets', 'Early-Bird-Welle 2 läuft gut.'), H('2026-10-21', 'Lena H.', '700 Tickets', '790 Tickets'), H('2026-10-14', 'Lena H.', '610 Tickets', '790 Tickets'), H('2026-09-01', 'Christian K.', '–', '1.200 Tickets', 'Zielwert festgelegt', 'Angelegt')]),
     K('k-sponsoring', 'o-wirtschaft', 'Sponsoring-Volumen', 'number', 150000, 110000, '€', '2027-01-31', null, [],
       [H('2026-10-22', 'Jonas W.', '85.000 €', '110.000 €', 'Zusage Gold-Partner Nr. 2.')]),
     K('k-breakeven', 'o-wirtschaft', 'Break-even erreicht', 'bool', 1, 0, '', '2027-02-28', null, ['k-tickets', 'k-sponsoring'],
       [H('2026-09-01', 'Christian K.', '–', 'Offen', 'Berechnung: 980 Tickets + 120.000 € Sponsoring', 'Angelegt')]),
     K('k-reach', 'o-reichweite', 'Social-Media-Reichweite', 'number', 500000, 320000, 'Impressions', '2027-03-01', null, [],
-      [H('2026-10-29', 'Lena H.', '255.000 Impressions', '320.000 Impressions', 'LinkedIn-Kampagne Speaker-Announcements.')]),
+      [H('2026-11-05', 'Lena H.', '320.000 Impressions', '320.000 Impressions', 'Auswertung kommt nächste Woche.', 'Kommentar'), H('2026-10-29', 'Lena H.', '255.000 Impressions', '320.000 Impressions', 'LinkedIn-Kampagne Speaker-Announcements.'), H('2026-10-15', 'Lena H.', '190.000 Impressions', '255.000 Impressions')]),
+    K('k-meetups', 'o-community', 'Meetups durchgeführt', 'number', 3, 1, 'Meetups', '2027-02-28', null, [],
+      [H('2026-10-20', 'Lena H.', '0 Meetups', '1 Meetups', 'Erstes Meetup in Köln mit 40 Gästen.')]),
     K('k-newsletter', 'o-reichweite', 'Newsletter-Abonnenten', 'number', 8000, 6400, 'Abonnenten', '2027-02-15', null, [],
       [H('2026-10-27', 'Lena H.', '6.100 Abonnenten', '6.400 Abonnenten')]),
     K('k-earlybird', 'o-reichweite', 'Early-Bird-Kampagne gestartet', 'bool', 1, 1, '', '2026-09-15', '2026-09-15', [],
@@ -51,7 +55,7 @@ export function seedState() {
     K('k-gold', 'o-partner', 'Gold-Sponsoren gewonnen', 'number', 4, 2, 'Sponsoren', '2026-12-15', null, ['k-deck'],
       [H('2026-10-22', 'Jonas W.', '1 Sponsoren', '2 Sponsoren', 'Vertrag mit zweitem Partner unterschrieben.')]),
     K('k-speaker', 'o-programm', 'Speaker bestätigt', 'number', 24, 17, 'Speaker', '2026-12-15', null, ['k-cfp'],
-      [H('2026-10-30', 'Aylin D.', '14 Speaker', '17 Speaker', 'Drei Zusagen aus dem CfP-Nachrücker-Pool.')]),
+      [H('2026-11-06', 'Aylin D.', '17 Speaker', '17 Speaker', '', 'Stand bestätigt'), H('2026-10-30', 'Aylin D.', '14 Speaker', '17 Speaker', 'Drei Zusagen aus dem CfP-Nachrücker-Pool.'), H('2026-10-23', 'Aylin D.', '12 Speaker', '14 Speaker'), H('2026-10-16', 'Aylin D.', '9 Speaker', '12 Speaker')]),
     K('k-cfp', 'o-programm', 'Call for Papers geschlossen', 'bool', 1, 1, '', '2026-10-15', '2026-10-17', [],
       [H('2026-10-17', 'Aylin D.', 'Offen', 'Erreicht am 2026-10-17', 'Zwei Tage verlängert – 142 Einreichungen.', 'Erreichung eingetragen')]),
     K('k-keynote', 'o-programm', 'Keynote bestätigt', 'bool', 1, 0, '', '2026-11-30', null, [],

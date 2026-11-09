@@ -1,3 +1,106 @@
+# Plan v0.4 – Pflege-Check auf der Startseite
+
+Stand: 09.11.2026 · Ausgangslage: v0.3 (Ziele + Schlüsselergebnisse, Daten v4) · Status: **umgesetzt (v0.4, Daten v5)**, P8 bestätigt
+
+**Ziel:** Die Startseite zeigt nicht mehr, *ob* Ziele erreicht werden, sondern ob sie **sauber formuliert und regelmäßig
+gepflegt** sind. Das hilft den Ressorts, gute Ziele und Schlüsselergebnisse zu schreiben und jede Woche den Stand einzutragen.
+
+## Entscheidungen (09.11.2026)
+
+| # | Thema | Entscheidung |
+|---|---|---|
+| P1 | Ziel gut formuliert | Titel hat **mindestens 5 Wörter**, sonst **rot**. Wort = durch Leerraum getrennt und enthält mind. einen Buchstaben/eine Ziffer („–“, „&“ zählen nicht). Beschreibung zählt nicht mit. |
+| P2 | Schlüsselergebnis quantitativ | Nur Typ **Anzahl mit Zielwert > 0** ist ok. **Ja/Nein ist immer rot** mit Hinweis „als messbare Anzahl formulieren“. |
+| P3 | „Aktualisiert“ | Zählt: Wert aktualisiert, Erreichung eingetragen, Kommentar und neu **„Stand bestätigt“** (Button „Stand unverändert bestätigen“). Stammdaten-Änderungen zählen nicht. Die Woche, in der das Ergebnis angelegt wurde, zählt als gepflegt. Ab der Woche der Erreichung gilt jede Woche als gepflegt. |
+| P4 | Woche | Montag 00:00 bis Sonntag 23:59, Ortszeit des Browsers. Anzeige „W1 · KW 46“. |
+| P5 | Wochenzählung | Je Event ein **Startdatum der Zählung** (`trackingStart`), vom Admin im Event-Dialog einstellbar, immer auf den Montag gerundet. Standard: Montag der laufenden Woche (bestehende Events per Migration: 09.11.2026). |
+| P6 | Raster | **Eine Zeile je Schlüsselergebnis**, gruppiert Ressort → Ziel. Je Woche eine Zelle: grün = gepflegt, gelb = nicht aktualisiert, rot = Formulierung falsch (nur die laufende Woche; vergangene Wochen kommen aus der Historie). Kommende Wochen bis Eventende gepunktet und leer. Ziel-Zeilen zeigen nur den Formulierungs-Check. |
+| P7 | Rest der Startseite | Kacheln zeigen Pflege-Zahlen. **Fortschrittsring, Event-Ziele und Ressort-Karten entfallen** auf der Startseite; die Event-Ziele bleiben im Ressort „Führung“, die Zielerreichung in den Ressort-Ansichten. |
+| P8 | Typwechsel | Damit rote Ja/Nein-Ergebnisse ohne Verlust der Historie korrigiert werden können, darf der Typ **einmalig von Ja/Nein auf Anzahl** wechseln (Zielwert Pflicht, Historieneintrag). Anzahl → Ja/Nein bleibt gesperrt. (Bestätigt am 09.11.2026.) |
+
+## Darstellung Startseite
+
+```
+Event · Summit 2027
+Pflege-Check                                   Woche 1 von 14 · KW 46 (09.–15.11.)
+
+[ Diese Woche offen 12/30 ] [ Ziele zu kurz 3 ] [ Nicht quantitativ 5 ] [ Gepflegt 18/30 ]
+
+■ gepflegt  ■ nicht aktualisiert  ■ Formulierung prüfen  ┊ kommende Woche
+
+● Führung                                         2 Hinweise
+Ziel / Schlüsselergebnis            Formulierung   W1  W2  W3 … ┊ W14
+Reichweite deutlich steigern …      ✓
+   Newsletter-Abonnenten 5.000      ✓              ■   ■   ■    ┊ ·
+   Pressemitteilung raus            ✗ Ja/Nein      ■   …
+Sponsoren                           ✗ nur 1 Wort
+● Marketing …
+```
+
+- Reihenfolge der Ressorts wie in der Seitenleiste (Führung zuerst), darin Ziele und Ergebnisse wie in der Ressort-Ansicht.
+- Je Ressort-Überschrift eine kurze Zusammenfassung („3 diese Woche offen · 1 Ziel zu kurz“) und ein Link zur Ressort-Ansicht.
+- Rote/gelbe Markierung immer **mit Text bzw. Tooltip** (nicht nur Farbe): „Nur 3 von 5 Wörtern“, „Ja/Nein – nicht messbar“,
+  „KW 47: nicht aktualisiert“.
+- Klick auf eine Zeile: eigenes Ressort → `modalKrForm` bzw. `modalObjectiveForm`; fremdes → `modalHistory` (nur lesen).
+- Ziel ohne aktive Schlüsselergebnisse: grauer Hinweis „noch keine Schlüsselergebnisse“ (nicht rot).
+- Viele Wochen: Tabelle scrollt waagerecht, erste Spalte bleibt stehen (`position: sticky`), aktuelle Woche hervorgehoben
+  und beim Laden ins Bild gescrollt. Ohne Eventende enden die Spalten mit der laufenden Woche.
+- Liegt `trackingStart` in der Zukunft: Hinweis „Die Wochenzählung beginnt am …“, nur die Formulierungs-Spalte.
+- Archivierte Ziele und Schlüsselergebnisse erscheinen nicht.
+
+## Umsetzung
+
+**1. Prüflogik als eigenes Modul `public/check.js`** (reine Funktionen, kein DOM)
+- `wordCount(text)`, `objectiveIssue(o)`, `krIssue(k)` (→ `null` oder `{ key, text }`)
+- `mondayOf(date)`, `isoWeek(date)`, `eventWeeks(ev, today)` → `[{ index, kw, from, to, past|current|future }]`
+  (Tagesrechnung über Kalendertage, damit die Sommerzeit nichts verschiebt)
+- `krWeekStates(k, weeks)` → je Woche `none | ok | stale | invalid | future` aus `createdAt`, `achievedAt` und `history[].kind`
+- Als klassisches Skript eingebunden (`<script src="check.js">` vor `app.js`), setzt `globalThis.Check`. Dadurch kann
+  `test/check.test.js` es per `import` laden und ohne Browser testen.
+
+**2. Backend (`lib/app.js`, `lib/store.js`)**
+- Daten **v5**: `migrate()` setzt `ev.trackingStart ??= Montag(heute)` (idempotent).
+- `POST/PUT /api/events`: `trackingStart` annehmen, als Datum prüfen, auf Montag runden; Standard beim Anlegen = Montag dieser Woche.
+- Neu `POST /api/key-results/:id/confirm` `{ note? }`: Rechte wie beim Wert (`canEditKr`), nicht bei archivierten;
+  Historieneintrag `kind: 'Stand bestätigt'`, `to` = aktueller Stand.
+- `PUT /api/key-results/:id`: `type: 'number'` erlaubt, wenn bisher `bool` (nur mit gültigem Zielwert; `current` = Zielwert,
+  falls bereits erreicht, sonst 0); Historie „Typ Ja/Nein → Anzahl“ (P8).
+
+**3. Frontend (`public/app.js`, `index.html`, `style.css`)**
+- `renderOverview()` neu: Kopf mit Woche, vier Kacheln, Legende, je Ressort eine `checkTable(r)`.
+  `ressortCard()` und der Fortschrittsring fallen weg.
+- `modalEventForm()`: Feld „Wochenzählung ab“ (Datum, Hinweis „wird auf Montag gesetzt“).
+- `modalObjectiveForm()`: Wortzähler unter dem Titel („3 von mind. 5 Wörtern“, live rot/grün) + kurzer Tipp
+  („Was wollen wir erreichen und warum? z. B. …“).
+- `modalKrForm()`: Hinweis bei Typ Ja/Nein; Button **„Stand unverändert bestätigen“** im Bereich „Aktueller Stand“;
+  Hinweis, wenn diese Woche noch kein Stand eingetragen ist; Typ-Auswahl bei Ja/Nein-Ergebnissen freigeben (nur → Anzahl).
+- `historyItems()`: neuer Eintrag „Stand bestätigt“ ohne Von/Nach-Darstellung.
+- CSS: `.week-cell` (ok/stale/invalid/future), sticky erste Spalte, Legende; Smartphone: Raster scrollt, Formulierung als Icon.
+
+**4. Tests**
+- `test/api.test.js`: `confirm` (eigenes Ressort 200 + Historie, fremd 403, archiviert 400, ohne Login 401);
+  `trackingStart` (nur Admin, Rundung auf Montag, ungültiges Datum 400, Migration setzt Standard);
+  Typwechsel (bool → number ok mit Zielwert, ohne 400, number → bool 400, fremdes Ressort 403).
+- `test/check.test.js`: Wörter zählen (Satzzeichen, Bindestriche, mehrfache Leerzeichen), KW über den Jahreswechsel
+  (KW 53/1), Woche am Sonntag 23:59 vs. Montag 00:00, Zustände je Woche (angelegt, Kommentar, Stammdaten zählt nicht, erreicht).
+
+**5. Doku & Seed**
+- `seed.js`: einige Historieneinträge über mehrere Wochen verteilen, mind. ein Ja/Nein-Ergebnis und ein zu kurzes Ziel,
+  damit alle Farben sichtbar sind.
+- `CLAUDE.md`: Daten v5, `trackingStart`, Historie „Stand bestätigt“, Startseite = Pflege-Check, `check.js`.
+
+## Offen / später
+
+- Filter „nur mit Hinweisen“ bzw. „nur mein Ressort“ auf der Startseite.
+- Markierungen auch in der Ressort-Ansicht (`krTable`) anzeigen.
+- Erinnerung per E-Mail an Ressorts mit offenen Ergebnissen (braucht SMTP).
+
+## Aufwand (grob)
+
+Backend + Tests **S**, Prüfmodul + Tests **S**, Startseite + Dialoge **M** – insgesamt **M**.
+
+---
+
 # Plan v0.2 – Nutzer & Rechte, Admin, Abhängigkeiten, Coolify
 
 Stand: 01.11.2026 · Ausgangslage: v0.1 (Express + JSON-Datei, kein Login, läuft lokal in OrbStack auf :8090)

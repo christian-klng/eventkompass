@@ -266,7 +266,7 @@ test('Migration v3/v4: Meilenstein → Ja/Nein, Anzahl + Datum → Anzahl, kpis 
   const { store } = await createApp({ dataDir: dir, log: () => {} });
   const k = (id) => store.state.keyResults.find((x) => x.id === id);
   try {
-    assert.equal(store.state.version, 4);
+    assert.equal(store.state.version, 5);
     assert.ok(!('kpis' in store.state));
     assert.equal(store.state.objectives.length, 1, 'ein Start-Ziel je Ressort');
     assert.equal(store.state.objectives[0].ressortId, 'r1');
@@ -496,7 +496,9 @@ test('Migration v4 an einem v3-Stand: ein Start-Ziel je Ressort, zweiter Lauf le
   const first = await createApp({ dataDir: dir, log: () => {} });
   try {
     const s = first.store.state;
-    assert.equal(s.version, 4);
+    assert.equal(s.version, 5);
+    assert.match(s.events[0].trackingStart, /^\d{4}-\d{2}-\d{2}$/, 'v5: Wochenzählung bekommt einen Standard');
+    assert.equal(new Date(s.events[0].trackingStart).getUTCDay(), 1, 'Standard ist ein Montag');
     assert.equal(s.objectives.length, 2);
     const oA = s.objectives.find((o) => o.ressortId === 'r1'), oB = s.objectives.find((o) => o.ressortId === 'r2');
     assert.equal(oA.title, 'Team A');
@@ -508,4 +510,69 @@ test('Migration v4 an einem v3-Stand: ein Start-Ziel je Ressort, zweiter Lauf le
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('Pflege-Check: Stand bestätigen nur im eigenen Ressort, mit Historie', async () => {
+  const a = await adminClient();
+  const m = await member(a, 'r-marketing');
+  const f = await member(a, 'r-technik');
+  const own = (await m('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Newsletter-Abos', type: 'number', target: 100 })).body;
+  const r = await m('POST', `/api/key-results/${own.id}/confirm`, { note: 'Keine neuen Zahlen' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.history[0].kind, 'Stand bestätigt');
+  assert.equal(r.body.history[0].note, 'Keine neuen Zahlen');
+  assert.match(r.body.history[0].who, /^Mitglied/);
+  assert.equal((await m('POST', `/api/key-results/${own.id}/confirm`)).body.history[0].note, '', 'ohne Kommentar möglich');
+  assert.equal((await f('POST', `/api/key-results/${own.id}/confirm`)).status, 403, 'fremdes Ressort');
+  assert.equal((await client()('POST', `/api/key-results/${own.id}/confirm`)).status, 401, 'ohne Login');
+  assert.equal((await m('POST', '/api/key-results/gibt-es-nicht/confirm')).status, 404);
+  const k = (await m('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Archivtest', type: 'number', target: 5 })).body;
+  await m('DELETE', `/api/key-results/${k.id}`);
+  assert.equal((await m('POST', `/api/key-results/${k.id}/confirm`)).status, 400, 'archiviert');
+});
+
+test('Pflege-Check: Wochenzählung je Event nur durch Admin, immer ab Montag', async () => {
+  const a = await adminClient();
+  const ev = (await a('POST', '/api/events', { name: 'Wochen-Test', trackingStart: '2026-11-12' })).body;
+  assert.equal(ev.trackingStart, '2026-11-09', 'Donnerstag → Montag derselben Woche');
+  const def = (await a('POST', '/api/events', { name: 'Wochen-Standard' })).body;
+  assert.equal(new Date(def.trackingStart).getUTCDay(), 1, 'Standard ist ein Montag');
+  let r = await a('PUT', `/api/events/${ev.id}`, { trackingStart: '2027-01-03' });
+  assert.equal(r.body.trackingStart, '2026-12-28', 'Sonntag gehört zur Woche davor');
+  assert.equal((await a('PUT', `/api/events/${ev.id}`, { trackingStart: '2027-02-30' })).status, 400, 'ungültiges Datum');
+  assert.equal((await a('PUT', `/api/events/${ev.id}`, { trackingStart: 'bald' })).status, 400);
+  r = await a('PUT', `/api/events/${ev.id}`, { name: 'Umbenannt' });
+  assert.equal(r.body.trackingStart, '2026-12-28', 'ohne Angabe bleibt die Zählung');
+  const m = await member(a, 'r-marketing');
+  assert.equal((await m('PUT', `/api/events/${ev.id}`, { trackingStart: '2026-11-02' })).status, 403);
+  await a('DELETE', `/api/events/${ev.id}`);
+  await a('DELETE', `/api/events/${def.id}`);
+});
+
+test('Pflege-Check: Ja/Nein lässt sich auf Anzahl umstellen, nicht zurück', async () => {
+  const a = await adminClient();
+  const m = await member(a, 'r-marketing');
+  const f = await member(a, 'r-technik');
+  const b = (await m('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Pressemitteilungen', type: 'bool' })).body;
+  assert.equal((await m('PUT', `/api/key-results/${b.id}`, { type: 'number' })).status, 400, 'Zielwert ist Pflicht');
+  assert.equal((await m('PUT', `/api/key-results/${b.id}`, { type: 'number', target: 0 })).status, 400);
+  assert.equal((await f('PUT', `/api/key-results/${b.id}`, { type: 'number', target: 3 })).status, 403, 'fremdes Ressort');
+  assert.equal((await m('PUT', `/api/key-results/${b.id}`, { type: 'combo', target: 3 })).status, 400, 'unbekannter Typ');
+  let r = await m('PUT', `/api/key-results/${b.id}`, { type: 'number', target: 3, unit: 'Mitteilungen' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.type, 'number');
+  assert.equal(r.body.target, 3);
+  assert.equal(r.body.current, 0);
+  assert.equal(r.body.achieved, false);
+  assert.match(r.body.history[0].to, /Typ Ja \/ Nein → Anzahl/);
+  r = await m('PUT', `/api/key-results/${b.id}`, { current: 3 });
+  assert.equal(r.body.achieved, true);
+  assert.equal((await m('PUT', `/api/key-results/${b.id}`, { type: 'bool' })).status, 400, 'Anzahl → Ja/Nein gesperrt');
+  // Bereits erreichtes Ja/Nein bleibt erreicht
+  const d = (await m('POST', '/api/key-results', { objectiveId: 'o-reichweite', title: 'Website online', type: 'bool' })).body;
+  await m('PUT', `/api/key-results/${d.id}`, { achieved: true, achievedAt: '2026-11-02' });
+  r = await m('PUT', `/api/key-results/${d.id}`, { type: 'number', target: 1 });
+  assert.equal(r.body.current, 1);
+  assert.equal(r.body.achieved, true);
+  assert.equal(r.body.achievedAt, '2026-11-02');
 });

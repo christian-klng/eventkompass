@@ -1,6 +1,6 @@
 {
   "name": "okr-event-tracker",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "OKR-Tracker für Events und Ressorts: Ziele und Schlüsselergebnisse",
   "private": true,
   "type": "module",

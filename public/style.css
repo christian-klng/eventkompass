@@ -59,7 +59,6 @@ main{flex:999 1 640px;min-width:0;padding:28px 32px 48px;display:flex;flex-direc
 .stat{padding:18px;display:flex;flex-direction:column;gap:6px}
 .stat .label{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:500}
 .stat .value{font-size:28px;font-weight:700;letter-spacing:-.02em}
-.ring-card{padding:18px;display:flex;align-items:center;gap:16px}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;flex:none}
 .dot.sm{width:8px;height:8px}
 
@@ -87,11 +86,6 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 .chip.lead{border-color:#D1D5DB;background:var(--line-soft);color:var(--ink-2)}
 .actions{text-align:right;white-space:nowrap}.actions .icon-btn{margin-left:4px}
 .empty{padding:28px 20px;text-align:center;color:var(--muted)}
-
-/* Ressort cards */
-.ressort-card{text-align:left;padding:18px;cursor:pointer;display:flex;flex-direction:column;gap:12px;color:var(--ink);width:100%}
-.ressort-card:hover{border-color:#C7D2FE}
-.ressort-card .top{display:flex;align-items:center;gap:10px}.ressort-card .top .name{font-weight:600;font-size:15px;flex:1}
 
 .sec-label{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
 
@@ -205,7 +199,8 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
 /* Responsiv – Tablet hoch & Smartphone: Sidebar wird zur Leiste über dem Inhalt */
 @media (max-width:900px){
   .topbar{padding:0 16px}
-  .layout{flex-direction:column;min-height:0}
+  .layout{flex-direction:column;flex-wrap:nowrap;min-height:0}
+  main{width:100%}
   .sidebar{flex:none;width:100%;min-width:0;flex-direction:row;flex-wrap:wrap;align-items:center;gap:6px;padding:10px 16px;border-right:none;border-bottom:1px solid var(--line)}
   .nav{width:auto;height:34px;padding:0 12px;border:1px solid var(--line);border-radius:999px;font-size:13px}
   .nav.active{border-color:#C7D2FE}
@@ -238,10 +233,60 @@ td{padding:12px;border-top:1px solid var(--line-soft);vertical-align:middle}
   .topbar{padding:0 12px;gap:8px}
   .sidebar{padding:10px 12px}
   main{padding:16px 12px 40px;gap:16px}
-  .stat,.ring-card,.ressort-card{padding:16px}
+  .stat{padding:16px}
   .obj-head{padding:14px 16px 10px}.obj-bar{margin:0 16px 6px}
   .section-head{padding:14px 16px}
   .table-wrap tr{padding:12px}
   .modal-head{padding:16px 16px 0}.modal-body{padding:16px}.modal-foot{padding:12px 16px}
   .modal-foot{flex-wrap:wrap}
+}
+
+/* Startseite: Pflege-Check (Wochenraster je Ressort) */
+.week-now{text-align:right}
+.legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin-top:-8px}
+.legend > span{display:inline-flex;align-items:center;gap:6px}
+.check-ressort{overflow:hidden}
+.check-ressort .section-head h2{font-size:15px}
+.check-summary{font-size:12px;font-weight:600}
+.check-summary.bad{color:var(--warn-ink)}.check-summary.ok{color:var(--ok-ink)}
+.check-wrap{overflow-x:auto;--c-title:340px;--c-form:170px}
+table.check-table{table-layout:fixed;min-width:0;width:calc(var(--c-title) + var(--c-form) + var(--weeks) * 38px)}
+.check-table col.c-title{width:var(--c-title)}.check-table col.c-form{width:var(--c-form)}.check-table col.c-wk{width:38px}
+.check-table th,.check-table td{padding:8px 4px}
+.check-table td:first-child{min-width:0}
+.check-table th:first-child,.check-table td:first-child{position:sticky;left:0;z-index:1;background:#fff;padding-left:20px;padding-right:12px}
+.check-table th:nth-child(2),.check-table td:nth-child(2){padding-left:8px;position:sticky;left:var(--c-title);z-index:1;background:#fff;box-shadow:1px 0 0 var(--line)}
+.check-table .obj-row td:nth-child(2){background:#FAFAFB}
+.check-table th.wk{text-align:center;font-size:10px;letter-spacing:0;padding:8px 0;line-height:1.3}
+.check-table th.wk .kw{font-weight:400;text-transform:none}
+.check-table th.current{color:var(--accent-ink)}
+.check-table td.wk{text-align:center;padding:6px 0}
+.check-table .wk.current{background:var(--accent-soft)}
+.check-table th:last-child,.check-table td:last-child{padding-right:0}
+.check-table .obj-row td{border-top:1px solid var(--line);background:#FAFAFB}
+.check-table .obj-row td:first-child{background:#FAFAFB}
+.check-table .kr-row td:first-child{padding-left:36px}
+.row-link{border:none;background:none;padding:0;margin:0;text-align:left;cursor:pointer;color:inherit;font:inherit;display:flex;flex-direction:column;gap:1px;max-width:100%}
+.row-link:hover .kr-name,.row-link.strong:hover,.row-link:hover h2{color:var(--accent-ink);text-decoration:underline}
+.row-link .kr-name,.check-table .obj-row td:first-child > *{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.check-table .obj-row td:first-child > *{display:block}
+.check-badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.check-badge.ok{background:var(--ok-bg);color:var(--ok-ink)}.check-badge.bad{background:var(--crit-bg);color:var(--crit-ink)}
+.wcell{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:5px;border:1px solid;font-size:11px;font-weight:700;line-height:1;vertical-align:middle}
+.wcell.ok{background:#BBF7D0;border-color:#86EFAC;color:var(--ok-ink)}
+.wcell.stale{background:#FDE68A;border-color:#FBBF24;color:var(--warn-ink)}
+.wcell.invalid{background:#FECACA;border-color:#F87171;color:var(--crit-ink)}
+.wcell.future{background:transparent;border:1px dashed #D1D5DB}
+.check-state{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 12px;padding:10px 14px;border-radius:10px;font-size:13px;border:1px solid}
+.check-state.ok{background:#F0FDF4;border-color:#BBF7D0;color:var(--ok-ink)}
+.check-state.stale{background:#FFFBEB;border-color:#FDE68A;color:#78350F}
+.check-inline{display:none;margin-top:3px;font-size:11px;font-weight:600;color:var(--crit-ink);background:var(--crit-bg);padding:1px 7px;border-radius:999px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.word-count{font-weight:600}
+.word-count.ok{color:var(--ok-ink)}.word-count.bad{color:var(--crit-ink)}
+@media (max-width:640px){
+  .check-wrap{--c-title:200px;--c-form:0px}
+  .check-table th:nth-child(2),.check-table td:nth-child(2){position:static;box-shadow:none;padding:0;font-size:0;overflow:hidden}
+  .check-table td:nth-child(2) > *{display:none}
+  .check-inline{display:inline-block}
+  .week-now{text-align:left}
 }
